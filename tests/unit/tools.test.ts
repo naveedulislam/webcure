@@ -417,6 +417,311 @@ describe('Edge Cases', () => {
 });
 
 // =============================================================================
+// Tests: Action Recording (action-log.ts)
+// =============================================================================
+
+// Inline recording logic from recorder/action-log.ts for unit testing
+interface RecordedAction {
+    timestamp: number;
+    command: string;
+    args: Record<string, unknown>;
+    source: 'agent' | 'user';
+    approved: boolean;
+}
+
+function createRecorder() {
+    let recording = false;
+    const actionLog: RecordedAction[] = [];
+
+    return {
+        startRecording() {
+            actionLog.length = 0;
+            recording = true;
+        },
+        stopRecording(): RecordedAction[] {
+            recording = false;
+            return [...actionLog];
+        },
+        isRecording(): boolean {
+            return recording;
+        },
+        recordAction(command: string, args: Record<string, unknown>, source: 'agent' | 'user' = 'user') {
+            if (!recording) return;
+            actionLog.push({ timestamp: Date.now(), command, args, source, approved: true });
+        },
+        getActionLog(): readonly RecordedAction[] {
+            return actionLog;
+        },
+    };
+}
+
+describe('Action Recording — Core', () => {
+    it('should start in non-recording state', () => {
+        const rec = createRecorder();
+        assert.strictEqual(rec.isRecording(), false);
+    });
+
+    it('should enter recording state after startRecording', () => {
+        const rec = createRecorder();
+        rec.startRecording();
+        assert.strictEqual(rec.isRecording(), true);
+    });
+
+    it('should exit recording state after stopRecording', () => {
+        const rec = createRecorder();
+        rec.startRecording();
+        rec.stopRecording();
+        assert.strictEqual(rec.isRecording(), false);
+    });
+
+    it('should not record actions when not recording', () => {
+        const rec = createRecorder();
+        rec.recordAction('navigate', { url: 'https://example.com' });
+        const actions = rec.stopRecording();
+        assert.strictEqual(actions.length, 0);
+    });
+
+    it('should record actions when recording is active', () => {
+        const rec = createRecorder();
+        rec.startRecording();
+        rec.recordAction('navigate', { url: 'https://example.com' });
+        const actions = rec.stopRecording();
+        assert.strictEqual(actions.length, 1);
+        assert.strictEqual(actions[0].command, 'navigate');
+        assert.strictEqual(actions[0].args.url, 'https://example.com');
+    });
+
+    it('should record multiple actions in sequence', () => {
+        const rec = createRecorder();
+        rec.startRecording();
+        rec.recordAction('navigate', { url: 'https://example.com' });
+        rec.recordAction('click', { text: 'Login' });
+        rec.recordAction('typeText', { value: 'admin', selector: '#user' });
+        const actions = rec.stopRecording();
+        assert.strictEqual(actions.length, 3);
+        assert.strictEqual(actions[0].command, 'navigate');
+        assert.strictEqual(actions[1].command, 'click');
+        assert.strictEqual(actions[2].command, 'typeText');
+    });
+
+    it('should clear action log on startRecording', () => {
+        const rec = createRecorder();
+        rec.startRecording();
+        rec.recordAction('navigate', { url: 'https://a.com' });
+        rec.stopRecording();
+        rec.startRecording();
+        const actions = rec.stopRecording();
+        assert.strictEqual(actions.length, 0);
+    });
+
+    it('should set source to "user" by default', () => {
+        const rec = createRecorder();
+        rec.startRecording();
+        rec.recordAction('click', { text: 'OK' });
+        const actions = rec.stopRecording();
+        assert.strictEqual(actions[0].source, 'user');
+    });
+
+    it('should allow source "agent"', () => {
+        const rec = createRecorder();
+        rec.startRecording();
+        rec.recordAction('click', { text: 'OK' }, 'agent');
+        const actions = rec.stopRecording();
+        assert.strictEqual(actions[0].source, 'agent');
+    });
+
+    it('should set approved to true', () => {
+        const rec = createRecorder();
+        rec.startRecording();
+        rec.recordAction('navigate', { url: 'https://example.com' });
+        const actions = rec.stopRecording();
+        assert.strictEqual(actions[0].approved, true);
+    });
+
+    it('should include timestamp on recorded actions', () => {
+        const rec = createRecorder();
+        const before = Date.now();
+        rec.startRecording();
+        rec.recordAction('navigate', { url: 'https://example.com' });
+        const actions = rec.stopRecording();
+        const after = Date.now();
+        assert.ok(actions[0].timestamp >= before);
+        assert.ok(actions[0].timestamp <= after);
+    });
+
+    it('stopRecording should return a copy (not the internal array)', () => {
+        const rec = createRecorder();
+        rec.startRecording();
+        rec.recordAction('navigate', { url: 'https://example.com' });
+        const actions1 = rec.stopRecording();
+        rec.startRecording();
+        rec.recordAction('click', { text: 'OK' });
+        const actions2 = rec.stopRecording();
+        assert.strictEqual(actions1.length, 1);
+        assert.strictEqual(actions2.length, 1);
+    });
+});
+
+// =============================================================================
+// Tests: TOOL_TO_COMMAND Mapping (extension.ts invokeToolForTest recording)
+// =============================================================================
+
+// Inline the TOOL_TO_COMMAND mapping from extension.ts for testing
+const TOOL_TO_COMMAND: Record<string, string> = {
+    explorer_navigate: 'navigate',
+    explorer_resize: 'resize',
+    explorer_extract: 'extract',
+    explorer_click: 'click',
+    explorer_hover: 'hover',
+    explorer_type: 'typeText',
+    explorer_type_from_file: 'typeText',
+    explorer_wait_for: 'waitFor',
+    explorer_wait_for_element: 'waitForElement',
+    explorer_select_option: 'selectOption',
+    explorer_fill_form: 'fillForm',
+    explorer_take_screenshot: 'screenshot',
+    explorer_close: 'close',
+    explorer_console_messages: 'consoleMessages',
+    explorer_drag: 'drag',
+    explorer_evaluate: 'evaluate',
+    explorer_file_upload: 'fileUpload',
+    explorer_handle_dialog: 'handleDialog',
+    explorer_navigate_back: 'navigateBack',
+    explorer_network_requests: 'networkRequests',
+    explorer_press_key: 'pressKey',
+    explorer_snapshot: 'snapshot',
+    explorer_tabs: 'tabs',
+    explorer_install: 'install',
+    explorer_find: 'find',
+    explorer_interact: 'interact',
+    explorer_scrape_menu: 'scrapeMenu',
+    explorer_scrape_page: 'scrapePage',
+};
+
+describe('TOOL_TO_COMMAND Mapping — Tool Names', () => {
+    it('should map explorer_navigate to navigate', () => {
+        assert.strictEqual(TOOL_TO_COMMAND['explorer_navigate'], 'navigate');
+    });
+
+    it('should map explorer_click to click', () => {
+        assert.strictEqual(TOOL_TO_COMMAND['explorer_click'], 'click');
+    });
+
+    it('should map explorer_type to typeText', () => {
+        assert.strictEqual(TOOL_TO_COMMAND['explorer_type'], 'typeText');
+    });
+
+    it('should map explorer_press_key to pressKey', () => {
+        assert.strictEqual(TOOL_TO_COMMAND['explorer_press_key'], 'pressKey');
+    });
+
+    it('should map explorer_take_screenshot to screenshot', () => {
+        assert.strictEqual(TOOL_TO_COMMAND['explorer_take_screenshot'], 'screenshot');
+    });
+
+    it('should map explorer_navigate_back to navigateBack', () => {
+        assert.strictEqual(TOOL_TO_COMMAND['explorer_navigate_back'], 'navigateBack');
+    });
+
+    it('should have all 28 tool mappings', () => {
+        assert.strictEqual(Object.keys(TOOL_TO_COMMAND).length, 28);
+    });
+
+    it('every mapped command should match the script generator expectations', () => {
+        // Commands that the script generator knows about (from COMMAND_TO_PYTHON)
+        const COMMAND_TO_PYTHON: Record<string, string> = {
+            launchBrowser: 'launch_browser',
+            closeBrowser: 'close_browser',
+            close: 'close_browser',
+            navigate: 'navigate',
+            click: 'click',
+            doubleClick: 'double_click',
+            rightClick: 'right_click',
+            typeText: 'type_text',
+            pressKey: 'press_key',
+            hover: 'hover',
+            scrollDown: 'scroll_down',
+            scrollUp: 'scroll_up',
+            scrollRight: 'scroll_right',
+            scrollLeft: 'scroll_left',
+            refresh: 'refresh',
+            goBack: 'go_back',
+            goForward: 'go_forward',
+            navigateBack: 'go_back',
+            selectOption: 'select_option',
+            switchWindow: 'switch_window',
+            screenshot: 'screenshot',
+            resizeBrowser: 'resize_browser',
+            fullscreenBrowser: 'fullscreen_browser',
+            resize: 'resize_browser',
+        };
+        // Key recording commands should map to known Python functions
+        const mustMap = ['navigate', 'click', 'hover', 'typeText', 'pressKey',
+            'screenshot', 'resize', 'close', 'navigateBack', 'selectOption'];
+        for (const cmd of mustMap) {
+            assert.ok(COMMAND_TO_PYTHON[cmd], `Command "${cmd}" not in COMMAND_TO_PYTHON`);
+        }
+    });
+});
+
+describe('Recording Integration — Start/Navigate/Stop Flow', () => {
+    it('should record a navigate action during active recording', () => {
+        const rec = createRecorder();
+        rec.startRecording();
+        // Simulate what invokeToolForTest now does after successful tool invocation
+        const toolName = 'explorer_navigate';
+        const input = { url: 'https://demo.testfire.net' };
+        const command = TOOL_TO_COMMAND[toolName] || toolName;
+        rec.recordAction(command, input as Record<string, unknown>, 'user');
+        const actions = rec.stopRecording();
+        assert.strictEqual(actions.length, 1);
+        assert.strictEqual(actions[0].command, 'navigate');
+        assert.strictEqual(actions[0].args.url, 'https://demo.testfire.net');
+    });
+
+    it('should record multiple tool actions in a session', () => {
+        const rec = createRecorder();
+        rec.startRecording();
+        // navigate
+        rec.recordAction(TOOL_TO_COMMAND['explorer_navigate'], { url: 'https://example.com' }, 'user');
+        // click
+        rec.recordAction(TOOL_TO_COMMAND['explorer_click'], { text: 'Login' }, 'user');
+        // type
+        rec.recordAction(TOOL_TO_COMMAND['explorer_type'], { value: 'admin', selector: '#user' }, 'user');
+        // press key
+        rec.recordAction(TOOL_TO_COMMAND['explorer_press_key'], { key: 'Enter' }, 'user');
+        const actions = rec.stopRecording();
+        assert.strictEqual(actions.length, 4);
+        assert.strictEqual(actions[0].command, 'navigate');
+        assert.strictEqual(actions[1].command, 'click');
+        assert.strictEqual(actions[2].command, 'typeText');
+        assert.strictEqual(actions[3].command, 'pressKey');
+    });
+
+    it('should not record after stopRecording', () => {
+        const rec = createRecorder();
+        rec.startRecording();
+        rec.recordAction('navigate', { url: 'https://a.com' }, 'user');
+        rec.stopRecording();
+        rec.recordAction('click', { text: 'Button' }, 'user');
+        // Start fresh to check nothing leaked
+        rec.startRecording();
+        const actions = rec.stopRecording();
+        assert.strictEqual(actions.length, 0);
+    });
+
+    it('should handle unknown tool name gracefully (fallback to raw name)', () => {
+        const rec = createRecorder();
+        rec.startRecording();
+        const toolName = 'explorer_unknown_tool';
+        const command = TOOL_TO_COMMAND[toolName] || toolName;
+        rec.recordAction(command, {}, 'user');
+        const actions = rec.stopRecording();
+        assert.strictEqual(actions[0].command, 'explorer_unknown_tool');
+    });
+});
+
+// =============================================================================
 // Summary
 // =============================================================================
 

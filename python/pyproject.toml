@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "webcure"
+version = "1.0.0"
+description = "Python client for WebCure browser automation"
+requires-python = ">=3.10"
+dependencies = ["requests"]
+
+[project.urls]
+Homepage = "https://github.com/naveedulislam/webcure"

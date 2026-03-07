@@ -10,16 +10,18 @@
 
 ## Test Summary
 
-| Category                  | Tests  | Passed | Failed |
-| ------------------------- | ------ | ------ | ------ |
-| Language Model Tools (28) | 40     | 40     | 0      |
-| File-Bridge Commands      | 29     | 29     | 0      |
-| **Total**                 | **69** | **69** | **0**  |
+| Category                  | Tests  | Passed | Failed | Retest |
+| ------------------------- | ------ | ------ | ------ | ------ |
+| Language Model Tools (28) | 40     | 40     | 0      | 0      |
+| File-Bridge Commands      | 29     | 29     | 0      | 0      |
+| Recording (Cmd Palette)   | 7      | 2      | 0      | 5      |
+| **Total**                 | **76** | **71** | **0**  | **5**  |
 
-### Bug Fixed During Testing
+### Bugs Fixed During Testing
 
 - **`explorer_snapshot`** — `page.accessibility.snapshot()` was removed in Playwright 1.58. Rewrote to use `page.locator('body').ariaSnapshot()` with separate interactive element registration.
 - **`explorer_click` dialog race condition** — The original click race had an unhandled promise rejection. Fixed by chaining `.then().catch()` and adding `timeout: 6000` to Playwright click.
+- **Recording not working from Command Palette** — `invokeToolForTest()` in `extension.ts` was not calling `recordAction()` after tool execution. Added `recordAction()` call with `TOOL_TO_COMMAND` mapping and `isRecording()` check so actions are recorded during active recording sessions.
 
 ---
 
@@ -131,6 +133,30 @@ Each row shows: the LM tool invocation, the equivalent File-Bridge command, and 
 | 48  | `explorer_close` `{}`                        | `{"command":"closeBrowser","args":{}}`       | WebCure: Close Browser |
 
 **Results:** All PASS
+
+---
+
+## Recording Tests (Command Palette)
+
+Tests that verify the Start Recording → Perform Actions → Stop Recording workflow
+generates a Python script correctly.
+
+**Bug Fixed:** `invokeToolForTest()` was not calling `recordAction()` after tool execution, so
+Command Palette actions were never recorded. Fixed by adding `recordAction()` call inside
+`invokeToolForTest()` with a `TOOL_TO_COMMAND` mapping to translate tool names (e.g.
+`explorer_navigate`) to command names the script generator understands (e.g. `navigate`).
+
+| #   | Test Scenario                                    | Steps                                                                                                                                       | Expected Result                                         | Status     |
+| --- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- | ---------- |
+| R1  | Basic: Start → Navigate → Stop                   | 1. Cmd Palette: "WebCure: Start Recording" 2. Cmd Palette: "WebCure: Navigate to URL" → enter URL 3. Cmd Palette: "WebCure: Stop Recording" | Python script opens with `navigate("url")` call         | **RETEST** |
+| R2  | Multiple actions: Navigate → Click → Type → Stop | 1. Start Recording 2. Navigate to URL 3. Click element by text 4. Type text 5. Stop Recording                                               | Script has `navigate()`, `click()`, `type_text()` calls | **RETEST** |
+| R3  | No actions: Start → Stop immediately             | 1. Start Recording 2. Stop Recording                                                                                                        | Warning: "No actions recorded"                          | PASS       |
+| R4  | Recording discards previous session              | 1. Start Recording 2. Navigate 3. Stop Recording 4. Start Recording again 5. Stop Recording                                                 | Second stop shows "No actions recorded" (fresh session) | **RETEST** |
+| R5  | Bridge actions recorded during active recording  | 1. Start Recording 2. Write navigate command to `.webcure/input.json` 3. Stop Recording                                                     | Script has `navigate()` from bridge action              | PASS       |
+| R6  | Actions not recorded after stop                  | 1. Start Recording 2. Navigate 3. Stop Recording (generates script) 4. Navigate again 5. Start Recording 6. Stop Recording                  | Second stop shows "No actions recorded"                 | **RETEST** |
+| R7  | Recording via Test Menu                          | 1. Cmd Palette: "WebCure: Test Menu" → Start Recording 2. Test Menu → Navigate to URL 3. Test Menu → Stop Recording                         | Python script generated with navigate action            | **RETEST** |
+
+**Note:** R1, R2, R4, R6, R7 are marked **RETEST** — these were failing before the bug fix and need manual verification.
 
 ---
 

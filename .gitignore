@@ -6,3 +6,6 @@ dist/
 default.profraw
 tests/unit/out/
 .DS_Store
+python/build/
+python/*.egg-info/
+__pycache__/

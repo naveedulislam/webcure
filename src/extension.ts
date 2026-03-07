@@ -19,7 +19,7 @@ import {
 	InteractTool, ScrapeMenuTool, ScrapePageTool,
 } from './tools';
 import { startBridge, stopBridge, setBridgeToolInstances } from './bridge/file-bridge';
-import { startRecording, stopRecording } from './recorder/action-log';
+import { startRecording, stopRecording, recordAction, isRecording } from './recorder/action-log';
 import { generatePythonScript } from './recorder/script-generator';
 
 // Output channel for test results
@@ -60,6 +60,38 @@ const toolInstances = {
 // Helper to invoke a tool and show results in the output panel
 // ---------------------------------------------------------------------------
 
+// Map explorer tool names to command names used by the script generator
+const TOOL_TO_COMMAND: Record<string, string> = {
+	explorer_navigate: 'navigate',
+	explorer_resize: 'resize',
+	explorer_extract: 'extract',
+	explorer_click: 'click',
+	explorer_hover: 'hover',
+	explorer_type: 'typeText',
+	explorer_type_from_file: 'typeText',
+	explorer_wait_for: 'waitFor',
+	explorer_wait_for_element: 'waitForElement',
+	explorer_select_option: 'selectOption',
+	explorer_fill_form: 'fillForm',
+	explorer_take_screenshot: 'screenshot',
+	explorer_close: 'close',
+	explorer_console_messages: 'consoleMessages',
+	explorer_drag: 'drag',
+	explorer_evaluate: 'evaluate',
+	explorer_file_upload: 'fileUpload',
+	explorer_handle_dialog: 'handleDialog',
+	explorer_navigate_back: 'navigateBack',
+	explorer_network_requests: 'networkRequests',
+	explorer_press_key: 'pressKey',
+	explorer_snapshot: 'snapshot',
+	explorer_tabs: 'tabs',
+	explorer_install: 'install',
+	explorer_find: 'find',
+	explorer_interact: 'interact',
+	explorer_scrape_menu: 'scrapeMenu',
+	explorer_scrape_page: 'scrapePage',
+};
+
 async function invokeToolForTest<T>(
 	toolName: string,
 	tool: vscode.LanguageModelTool<T>,
@@ -84,6 +116,13 @@ async function invokeToolForTest<T>(
 				}
 			}
 		}
+
+		// Record the action if recording is active
+		if (isRecording()) {
+			const command = TOOL_TO_COMMAND[toolName] || toolName;
+			recordAction(command, input as Record<string, unknown>, 'user');
+		}
+
 		outputChannel.appendLine(`📤 Result:`);
 		outputChannel.appendLine(output || '(no output)');
 		outputChannel.appendLine(`${'='.repeat(60)}\n`);
@@ -217,6 +256,19 @@ export async function activate(context: vscode.ExtensionContext) {
 			return;
 		}
 		const script = generatePythonScript(actions);
+
+		// Auto-start the API server if not already running so the script can execute
+		if (!apiServer.actualPort) {
+			const cfg = vscode.workspace.getConfiguration('webcure');
+			const port = cfg.get<number>('api.port', 5678);
+			const host = cfg.get<string>('api.host', '127.0.0.1');
+			try {
+				const actualPort = await apiServer.start(port, host);
+				vscode.window.showInformationMessage(`WebCure: API Server auto-started on ${host}:${actualPort}`);
+			} catch {
+				// Non-fatal — user can start manually
+			}
+		}
 
 		// Open a new untitled document with the generated Python script
 		const doc = await vscode.workspace.openTextDocument({
