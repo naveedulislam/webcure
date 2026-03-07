@@ -1,0 +1,13 @@
+.vscode/**
+.vscode-test/**
+.git/**
+src/**
+out/**/*.map
+.gitignore
+tsconfig.json
+*.ts
+!out/**/*.js
+
+# Exclude all node_modules except playwright-core
+node_modules/**
+!node_modules/playwright-core/**
