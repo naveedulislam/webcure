@@ -49,19 +49,21 @@ def navigate(url: str, wait_until: str | None = None):
 
 
 def click(target: str, **kwargs):
-    args: dict = {"text": target, "element": target}
+    args: dict = _target_args(target)
     args.update(_parse_spatial(kwargs))
     return _get_client().invoke("click", args)
 
 
 def double_click(target: str, **kwargs):
-    args: dict = {"text": target, "element": target, "double": True}
+    args: dict = _target_args(target)
+    args["double"] = True
     args.update(_parse_spatial(kwargs))
     return _get_client().invoke("click", args)
 
 
 def right_click(target: str, **kwargs):
-    args: dict = {"text": target, "element": target, "button": "right"}
+    args: dict = _target_args(target)
+    args["button"] = "right"
     args.update(_parse_spatial(kwargs))
     return _get_client().invoke("click", args)
 
@@ -69,8 +71,7 @@ def right_click(target: str, **kwargs):
 def type_text(text: str, into: str | None = None, **kwargs):
     args: dict = {"value": text}
     if into:
-        args["text"] = into
-        args["element"] = into
+        args.update(_target_args(into))
     args.update(_parse_spatial(kwargs))
     return _get_client().invoke("type", args)
 
@@ -80,7 +81,7 @@ def press_key(key: str):
 
 
 def hover(target: str, **kwargs):
-    args: dict = {"text": target, "element": target}
+    args: dict = _target_args(target)
     args.update(_parse_spatial(kwargs))
     return _get_client().invoke("hover", args)
 
@@ -205,3 +206,22 @@ def _parse_spatial(kwargs: dict) -> dict:
         elif k == "near":
             spatial["near"] = v
     return spatial
+
+
+def _is_selector(target: str) -> bool:
+    """Detect whether a target string is a CSS/XPath selector vs visible text."""
+    if not target:
+        return False
+    # CSS id, class, attribute, pseudo, child combinator, or XPath
+    if target.startswith(('#', '.', '//', '(//')) or target.startswith('xpath='):
+        return True
+    if any(ch in target for ch in ('>', '[', ':', '+', '~')):
+        return True
+    return False
+
+
+def _target_args(target: str) -> dict:
+    """Build the correct args dict for a target string."""
+    if _is_selector(target):
+        return {"selector": target, "element": target}
+    return {"text": target, "element": target}

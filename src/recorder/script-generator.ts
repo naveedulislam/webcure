@@ -67,15 +67,44 @@ const COMMAND_TO_PYTHON: Record<string, string> = {
     resizeBrowser: 'resize_browser',
     fullscreenBrowser: 'fullscreen_browser',
     resize: 'resize_browser',
+    interact: 'interact',
 };
 
 function actionToPython(action: RecordedAction): string | null {
+    // The interact command is a multi-action tool; decompose by its action field
+    if (action.command === 'interact') {
+        return interactToPython(action.args);
+    }
     const fnName = COMMAND_TO_PYTHON[action.command];
     if (!fnName) {
         return `# (skipped: ${action.command})`;
     }
     const argParts = buildPythonArgs(action.command, action.args);
     return `${fnName}(${argParts})`;
+}
+
+function interactToPython(args: Record<string, unknown>): string {
+    const action = String(args.action || '');
+    const target = args.selector || args.element || args.ref || '';
+    switch (action) {
+        case 'type': {
+            const value = args.value ?? '';
+            return `type_text(${pyStr(value)}, into=${pyStr(target)})`;
+        }
+        case 'click':
+            return `click(${pyStr(target)})`;
+        case 'double_click':
+        case 'doubleClick':
+            return `double_click(${pyStr(target)})`;
+        case 'hover':
+            return `hover(${pyStr(target)})`;
+        case 'select': {
+            const value = args.value ?? '';
+            return `select_option(${pyStr(target)}, ${pyStr(value)})`;
+        }
+        default:
+            return `# (interact action=${action} on ${target})`;
+    }
 }
 
 function buildPythonArgs(command: string, args: Record<string, unknown>): string {
@@ -92,7 +121,7 @@ function buildPythonArgs(command: string, args: Record<string, unknown>): string
         case 'doubleClick':
         case 'rightClick':
         case 'hover':
-            return args.target ? pyStr(args.target) : (args.ref ? pyStr(args.ref) : '');
+            return args.target ? pyStr(args.target) : (args.text ? pyStr(args.text) : (args.selector ? pyStr(args.selector) : (args.element ? pyStr(args.element) : (args.ref ? pyStr(args.ref) : ''))));
         case 'pressKey':
             return args.key ? pyStr(args.key) : '';
         case 'switchWindow':
@@ -126,9 +155,24 @@ function buildPythonArgs(command: string, args: Record<string, unknown>): string
 function collectImports(actions: RecordedAction[]): string[] {
     const names = new Set<string>();
     for (const action of actions) {
-        const pyName = COMMAND_TO_PYTHON[action.command];
-        if (pyName) {
-            names.add(pyName);
+        if (action.command === 'interact') {
+            // Derive the actual Python function from the interact action field
+            const interactAction = String(action.args.action || '');
+            const mapping: Record<string, string> = {
+                type: 'type_text',
+                click: 'click',
+                double_click: 'double_click',
+                doubleClick: 'double_click',
+                hover: 'hover',
+                select: 'select_option',
+            };
+            const fn = mapping[interactAction];
+            if (fn) names.add(fn);
+        } else {
+            const pyName = COMMAND_TO_PYTHON[action.command];
+            if (pyName) {
+                names.add(pyName);
+            }
         }
     }
     return Array.from(names).sort();

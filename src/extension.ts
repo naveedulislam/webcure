@@ -19,7 +19,7 @@ import {
 	InteractTool, ScrapeMenuTool, ScrapePageTool,
 } from './tools';
 import { startBridge, stopBridge, setBridgeToolInstances } from './bridge/file-bridge';
-import { startRecording, stopRecording, recordAction, isRecording } from './recorder/action-log';
+import { startRecording, stopRecording, recordAction, isRecording, initRecorder } from './recorder/action-log';
 import { generatePythonScript } from './recorder/script-generator';
 
 // Output channel for test results
@@ -142,6 +142,12 @@ export async function activate(context: vscode.ExtensionContext) {
 	outputChannel = vscode.window.createOutputChannel('WebCure Tools');
 	const registrations: vscode.Disposable[] = [];
 
+	// Persist recorded actions to workspaceState so they survive extension-host restarts
+	initRecorder((isActive, actions) => {
+		context.workspaceState.update('webcure.recordedActions', actions);
+		context.workspaceState.update('webcure.isRecording', isActive);
+	});
+
 	// ============================================
 	// 1. LANGUAGE MODEL TOOLS (VS Code Copilot)
 	// ============================================
@@ -246,11 +252,31 @@ export async function activate(context: vscode.ExtensionContext) {
 
 	registrations.push(vscode.commands.registerCommand('webcure.startRecording', () => {
 		startRecording();
-		vscode.window.showInformationMessage('WebCure: Recording started');
+		outputChannel.show(false);
+		const ts = new Date().toISOString().replace('T', ' ').replace('Z', '');
+		outputChannel.appendLine(`\n${'='.repeat(60)}`);
+		outputChannel.appendLine(`[${ts}] [INFO] WebCure: Script recording started. Use browser commands, then run "Stop Recording".`);
+		outputChannel.appendLine(`${'='.repeat(60)}\n`);
 	}));
 
 	registrations.push(vscode.commands.registerCommand('webcure.stopRecording', async () => {
-		const actions = stopRecording();
+		let actions = stopRecording();
+
+		// Fall back to persisted actions if in-memory log is empty
+		// (handles extension-host restart after browser close, etc.)
+		if (actions.length === 0) {
+			actions = context.workspaceState.get<any[]>('webcure.recordedActions', []);
+		}
+		// Clear persisted state
+		context.workspaceState.update('webcure.recordedActions', undefined);
+		context.workspaceState.update('webcure.isRecording', undefined);
+
+		outputChannel.show(false);
+		const ts = new Date().toISOString().replace('T', ' ').replace('Z', '');
+		outputChannel.appendLine(`\n${'='.repeat(60)}`);
+		outputChannel.appendLine(`[${ts}] [INFO] WebCure: Script recording stopped — ${actions.length} action(s) captured.`);
+		outputChannel.appendLine(`${'='.repeat(60)}\n`);
+
 		if (actions.length === 0) {
 			vscode.window.showWarningMessage('WebCure: No actions recorded');
 			return;
