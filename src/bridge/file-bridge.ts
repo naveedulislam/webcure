@@ -490,20 +490,18 @@ async function invokeToolAsText(
 
 function writeCLIScript(dir: string): void {
     const cliPath = path.join(dir, BRIDGE_CLI);
-    const templatePath = path.join(__dirname, 'bridge', 'cli-template.js');
-    if (fs.existsSync(templatePath)) {
+    // Look for cli-template.js in the same directory as this compiled file
+    const candidates = [
+        path.join(__dirname, 'cli-template.js'),           // out/src/bridge/cli-template.js (copied by compile script)
+        path.join(__dirname, '..', '..', '..', 'src', 'bridge', 'cli-template.js'), // dev: repo root/src/bridge/
+    ];
+    const templatePath = candidates.find(p => fs.existsSync(p));
+    if (templatePath) {
         fs.copyFileSync(templatePath, cliPath);
         fs.chmodSync(cliPath, 0o755);
     } else {
-        // Try alternate location (when compiled to out/)
-        const altPath = path.join(__dirname, '..', 'src', 'bridge', 'cli-template.js');
-        if (fs.existsSync(altPath)) {
-            fs.copyFileSync(altPath, cliPath);
-            fs.chmodSync(cliPath, 0o755);
-        } else {
-            const minimal = '#!/usr/bin/env node\nconsole.error("CLI template not found. Reinstall the extension.");\nprocess.exit(1);\n';
-            fs.writeFileSync(cliPath, minimal, { mode: 0o755 });
-        }
+        const minimal = '#!/usr/bin/env node\nconsole.error("CLI template not found. Reinstall the extension.");\nprocess.exit(1);\n';
+        fs.writeFileSync(cliPath, minimal, { mode: 0o755 });
     }
 }
 

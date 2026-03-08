@@ -3,10 +3,19 @@
 .git/**
 src/**
 out/**/*.map
+out/tests/**
 .gitignore
 tsconfig.json
 *.ts
-!out/**/*.js
+!out/src/**/*.js
+
+# Exclude test/dev/build files from VSIX
+tests/**
+status/**
+python/build/**
+python/webcure.egg-info/**
+__pycache__/**
+default.profraw
 
 # Exclude all node_modules except playwright-core
 node_modules/**

@@ -585,7 +585,7 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./",
+    "compile": "tsc -p ./ && cp src/bridge/cli-template.js out/src/bridge/cli-template.js",
     "watch": "tsc -watch -p ./",
     "package": "mkdir -p dist && vsce package -o dist/webcure.vsix",
     "test:unit": "tsc --outDir tests/unit/out --esModuleInterop --moduleResolution node --module commonjs --target ES2020 --strict tests/unit/tools.test.ts && node tests/unit/out/tools.test.js && rm -rf tests/unit/out"
