@@ -23,6 +23,7 @@ Both approaches share the same Playwright-based browser engine. Whether Copilot 
 - [How LM Tools and Bridge Commands Relate](#how-lm-tools-and-bridge-commands-relate)
 - [VS Code Commands (Command Palette)](#vs-code-commands-command-palette)
 - [HTTP API Server](#http-api-server)
+- [Step Recording (Automatic Documentation)](#step-recording-automatic-documentation)
 - [Script Recording & Python Playback](#script-recording--python-playback)
 - [JSON Script Runner](#json-script-runner)
 - [Configuration](#configuration)
@@ -58,10 +59,11 @@ Both approaches share the same Playwright-based browser engine. Whether Copilot 
 │  │      Uses system Chrome or Edge          │                   │
 │  └──────────────────────────────────────────┘                   │
 │                                                                  │
-│  ┌────────────────┐  ┌──────────────────────┐                   │
-│  │  HTTP API Server│  │  Action Recorder     │                   │
-│  │  (port 5678)    │  │  + Python Generator  │                   │
-│  └────────────────┘  └──────────────────────┘                   │
+│  ┌────────────────┐  ┌──────────────────────┐  ┌──────────────┐  │
+│  │  HTTP API Server│  │  Action Recorder     │  │ Step Recorder│  │
+│  │  (port 5678)    │  │  + Python Generator  │  │ (Markdown +  │  │
+│  └────────────────┘  └──────────────────────┘  │  Screenshots)│  │
+│                                                 └──────────────┘  │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -385,41 +387,43 @@ The 33 VS Code commands in the Command Palette (e.g., `webcure.testNavigate`) ar
 
 All commands are accessible via `Cmd+Shift+P` (macOS) / `Ctrl+Shift+P` (Windows/Linux) under the **WebCure** category:
 
-| Command                         | What it does                         |
-| ------------------------------- | ------------------------------------ |
-| WebCure: Navigate to URL        | Prompts for a URL and navigates      |
-| WebCure: Click Element          | Prompts for text/selector and clicks |
-| WebCure: Hover Element          | Hover over an element                |
-| WebCure: Type Text              | Type into a field                    |
-| WebCure: Type Text from File    | Type file contents into a field      |
-| WebCure: Press Key              | Press a keyboard key                 |
-| WebCure: Take Screenshot        | Save a screenshot                    |
-| WebCure: Take Snapshot          | Capture accessibility tree with refs |
-| WebCure: Find Element           | Find element by text/selector        |
-| WebCure: Interact with Element  | Multi-action on an element by ref    |
-| WebCure: Select Option          | Pick a dropdown value                |
-| WebCure: Fill Form              | Fill multiple form fields            |
-| WebCure: Drag Element           | Drag and drop                        |
-| WebCure: Evaluate JavaScript    | Run JS in page context               |
-| WebCure: Extract Text Content   | Extract visible text                 |
-| WebCure: Wait For Text          | Wait for text on page                |
-| WebCure: Wait For Element       | Wait for element state               |
-| WebCure: Resize Browser Window  | Resize viewport                      |
-| WebCure: Navigate Back          | Go back in history                   |
-| WebCure: Manage Tabs            | List/create/close/select tabs        |
-| WebCure: Close Browser          | Close the browser                    |
-| WebCure: Get Console Messages   | Show browser console output          |
-| WebCure: Get Network Requests   | Show observed network requests       |
-| WebCure: Handle Dialog          | Accept/dismiss a dialog              |
-| WebCure: Upload File            | Upload files                         |
-| WebCure: Scrape Menu/Navigation | Extract menu structure               |
-| WebCure: Scrape Page Structure  | Extract forms/tables                 |
-| WebCure: Tools Menu             | Quick-pick menu of all tools         |
-| WebCure: Start API Server       | Start the HTTP API on port 5678      |
-| WebCure: Stop API Server        | Stop the HTTP API                    |
-| WebCure: Start Recording        | Begin recording browser actions      |
-| WebCure: Stop Recording         | Stop and generate Python script      |
-| WebCure: Run Script             | Execute a JSON automation script     |
+| Command                           | What it does                                    |
+| --------------------------------- | ----------------------------------------------- |
+| WebCure: Navigate to URL          | Prompts for a URL and navigates                 |
+| WebCure: Click Element            | Prompts for text/selector and clicks            |
+| WebCure: Hover Element            | Hover over an element                           |
+| WebCure: Type Text                | Type into a field                               |
+| WebCure: Type Text from File      | Type file contents into a field                 |
+| WebCure: Press Key                | Press a keyboard key                            |
+| WebCure: Take Screenshot          | Save a screenshot                               |
+| WebCure: Take Snapshot            | Capture accessibility tree with refs            |
+| WebCure: Find Element             | Find element by text/selector                   |
+| WebCure: Interact with Element    | Multi-action on an element by ref               |
+| WebCure: Select Option            | Pick a dropdown value                           |
+| WebCure: Fill Form                | Fill multiple form fields                       |
+| WebCure: Drag Element             | Drag and drop                                   |
+| WebCure: Evaluate JavaScript      | Run JS in page context                          |
+| WebCure: Extract Text Content     | Extract visible text                            |
+| WebCure: Wait For Text            | Wait for text on page                           |
+| WebCure: Wait For Element         | Wait for element state                          |
+| WebCure: Resize Browser Window    | Resize viewport                                 |
+| WebCure: Navigate Back            | Go back in history                              |
+| WebCure: Manage Tabs              | List/create/close/select tabs                   |
+| WebCure: Close Browser            | Close the browser                               |
+| WebCure: Get Console Messages     | Show browser console output                     |
+| WebCure: Get Network Requests     | Show observed network requests                  |
+| WebCure: Handle Dialog            | Accept/dismiss a dialog                         |
+| WebCure: Upload File              | Upload files                                    |
+| WebCure: Scrape Menu/Navigation   | Extract menu structure                          |
+| WebCure: Scrape Page Structure    | Extract forms/tables                            |
+| WebCure: Tools Menu               | Quick-pick menu of all tools                    |
+| WebCure: Start API Server         | Start the HTTP API on port 5678                 |
+| WebCure: Stop API Server          | Stop the HTTP API                               |
+| WebCure: Start Recording          | Begin recording browser actions                 |
+| WebCure: Stop Recording           | Stop and generate Python script                 |
+| WebCure: Record Steps (Automatic) | Start automatic step recording with screenshots |
+| WebCure: Stop Recording Steps     | Stop step recording and open the Markdown log   |
+| WebCure: Run Script               | Execute a JSON automation script                |
 
 ---
 
@@ -445,6 +449,78 @@ curl http://localhost:5678/tools
 # Health check
 curl http://localhost:5678/health
 ```
+
+---
+
+## Step Recording (Automatic Documentation)
+
+WebCure can automatically record every user interaction in the browser and produce a **Markdown document** with plain-English descriptions and a screenshot for each step. This is useful for creating test documentation, bug reports, or onboarding guides without any manual effort.
+
+### How It Works
+
+1. **Start recording:** Command Palette → **WebCure: Record Steps (Automatic)**
+2. You are prompted for an optional starting URL (defaults to `https://demo.testfire.net`)
+3. A browser opens and navigates to the URL
+4. **Interact normally** — every click, form input, and Enter key press is captured automatically
+5. **Stop recording:** Command Palette → **WebCure: Stop Recording Steps**, or simply close the browser window
+
+When recording stops, the Markdown file opens automatically in the editor preview.
+
+### What Gets Captured
+
+| User Action            | Recorded As                                          | Screenshot                                |
+| ---------------------- | ---------------------------------------------------- | ----------------------------------------- |
+| Click a link or button | `Clicked on button 'Login'`                          | Taken after the page reacts to the click  |
+| Type into a field      | `Typed 'admin' into 'Username'`                      | Taken immediately (shows the typed value) |
+| Type a password        | `Typed '********' into 'Password'`                   | Password value is masked                  |
+| Press Enter            | `Pressed 'Enter' on 'Search'`                        | Taken after the page reacts               |
+| Navigate to URL        | `Performed 'navigate' on 'Navigated to https://...'` | Taken after page load                     |
+| Close the browser      | `Performed 'close' on 'Browser window closed'`       | No screenshot (browser is gone)           |
+
+### Output Structure
+
+Each recording session creates a timestamped folder in the workspace root:
+
+```
+WebCure_Steps_2026-03-09_22-13-00/
+├── Recording.md      # Markdown log with all steps
+├── step_1.png        # Screenshot for step 1
+├── step_2.png        # Screenshot for step 2
+├── step_3.png        # ...
+└── ...
+```
+
+The Markdown file contains structured entries like:
+
+```markdown
+### Step 3
+
+**Action:** Typed 'admin' into 'Username'
+
+![Screenshot for Step 3](./step_3.png)
+```
+
+### Element Identification
+
+The step recorder uses multiple heuristics to produce human-readable element names:
+
+- **`<label for="...">` associations** — preferred for form fields
+- **Parent `<label>` wrappers** — for fields wrapped inside labels
+- **Adjacent table cell text** — for table-based layouts (e.g., `"Username:"` from a neighboring `<td>`)
+- **Previous sibling text** — `<span>`, `<label>`, `<b>` elements before the input
+- **Button value/text** — for `<button>` and `<input type="submit">`, the button's own text takes priority
+- **ARIA attributes** — `aria-label`, `title`, `placeholder`
+- **Element ID or name** — as a fallback
+
+Each step also records CSS selector and XPath in HTML comments for reference.
+
+### Automatic Stop on Browser Close
+
+If you close the browser window while recording is active, the recorder:
+
+1. Logs a final "Browser window closed" step (without a screenshot)
+2. Waits for any pending steps to finish writing
+3. Automatically stops recording and opens the Markdown preview
 
 ---
 
@@ -655,8 +731,9 @@ webcure/
 │   │   ├── file-bridge.ts    # File-based command router
 │   │   └── cli-template.js   # CLI helper (copied to .webcure/)
 │   └── recorder/
-│       ├── action-log.ts     # Start/stop/record actions
-│       └── script-generator.ts # Convert actions to Python
+│       ├── action-log.ts       # Start/stop/record actions
+│       ├── script-generator.ts # Convert actions to Python
+│       └── step-recorder.ts   # Automatic step recorder (Markdown + screenshots)
 ├── python/
 │   ├── pyproject.toml        # Python package metadata
 │   ├── setup.py              # Package setup (pip install)
@@ -670,7 +747,9 @@ webcure/
 │       └── tools.test.ts     # Unit tests (bridge routing, recording, params)
 ├── status/
 │   ├── project_status_01.md  # Initial release status report
-│   └── project_status_02.md  # Recording fix & Python package
+│   ├── project_status_02.md  # Recording fix & Python package
+│   ├── project_status_03.md  # Action persistence & interact tool fixes
+│   └── project_status_04.md  # Step recorder feature
 ├── out/                      # Compiled JavaScript (tsc output)
 ├── dist/                     # Packaged .vsix file
 ├── package.json              # Extension manifest + tool/command declarations

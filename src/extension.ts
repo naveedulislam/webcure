@@ -21,6 +21,7 @@ import {
 import { startBridge, stopBridge, setBridgeToolInstances } from './bridge/file-bridge';
 import { startRecording, stopRecording, recordAction, isRecording, initRecorder } from './recorder/action-log';
 import { generatePythonScript } from './recorder/script-generator';
+import { startStepRecorder, stopStepRecorder, setStepRecorderOutputChannel } from './recorder/step-recorder';
 
 // Output channel for test results
 let outputChannel: vscode.OutputChannel;
@@ -140,6 +141,7 @@ async function invokeToolForTest<T>(
 
 export async function activate(context: vscode.ExtensionContext) {
 	outputChannel = vscode.window.createOutputChannel('WebCure Tools');
+	setStepRecorderOutputChannel(outputChannel);
 	const registrations: vscode.Disposable[] = [];
 
 	// Persist recorded actions to workspaceState so they survive extension-host restarts
@@ -206,7 +208,7 @@ export async function activate(context: vscode.ExtensionContext) {
 			if (actualPort !== port) {
 				vscode.window.showInformationMessage(`WebCure API Server: port ${port} was busy, started on port ${actualPort} instead.`);
 			}
-		}).catch(() => {});
+		}).catch(() => { });
 	}
 
 	registrations.push(vscode.commands.registerCommand('webcure.startApiServer', async () => {
@@ -306,7 +308,23 @@ export async function activate(context: vscode.ExtensionContext) {
 	}));
 
 	// ============================================
-	// 5. SCRIPT RUNNER
+	// 5. STEP RECORDER COMMANDS
+	// ============================================
+
+	registrations.push(vscode.commands.registerCommand('webcure.startStepRecorder', async () => {
+		const initialUrl = await vscode.window.showInputBox({
+			prompt: 'Initial URL to navigate to (optional)',
+			value: 'https://demo.testfire.net'
+		});
+		await startStepRecorder(initialUrl);
+	}));
+
+	registrations.push(vscode.commands.registerCommand('webcure.stopStepRecorder', async () => {
+		await stopStepRecorder();
+	}));
+
+	// ============================================
+	// 6. SCRIPT RUNNER
 	// ============================================
 
 	const isFailureOutput = (output: string): boolean => {

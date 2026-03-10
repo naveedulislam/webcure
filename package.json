@@ -33,7 +33,10 @@
     "languageModelTools": [
       {
         "name": "explorer_navigate",
-        "tags": ["language-model-tools", "webcure"],
+        "tags": [
+          "language-model-tools",
+          "webcure"
+        ],
         "toolReferenceName": "explorer_navigate",
         "displayName": "Navigate to URL",
         "icon": "$(globe)",
@@ -43,15 +46,32 @@
         "inputSchema": {
           "type": "object",
           "properties": {
-            "url": { "type": "string", "description": "Absolute URL to open (must start with http or https)." },
-            "waitUntil": { "type": "string", "enum": ["load", "domcontentloaded", "networkidle"], "default": "load", "description": "When to consider navigation finished." }
+            "url": {
+              "type": "string",
+              "description": "Absolute URL to open (must start with http or https)."
+            },
+            "waitUntil": {
+              "type": "string",
+              "enum": [
+                "load",
+                "domcontentloaded",
+                "networkidle"
+              ],
+              "default": "load",
+              "description": "When to consider navigation finished."
+            }
           },
-          "required": ["url"]
+          "required": [
+            "url"
+          ]
         }
       },
       {
         "name": "explorer_resize",
-        "tags": ["language-model-tools", "webcure"],
+        "tags": [
+          "language-model-tools",
+          "webcure"
+        ],
         "toolReferenceName": "explorer_resize",
         "displayName": "Resize Window",
         "icon": "$(screen-full)",
@@ -61,15 +81,30 @@
         "inputSchema": {
           "type": "object",
           "properties": {
-            "preset": { "type": "string", "enum": ["fullscreen"], "description": "Optional preset for full screen size based on current monitor." },
-            "width": { "type": "number", "description": "Viewport width in pixels." },
-            "height": { "type": "number", "description": "Viewport height in pixels." }
+            "preset": {
+              "type": "string",
+              "enum": [
+                "fullscreen"
+              ],
+              "description": "Optional preset for full screen size based on current monitor."
+            },
+            "width": {
+              "type": "number",
+              "description": "Viewport width in pixels."
+            },
+            "height": {
+              "type": "number",
+              "description": "Viewport height in pixels."
+            }
           }
         }
       },
       {
         "name": "explorer_extract",
-        "tags": ["language-model-tools", "webcure"],
+        "tags": [
+          "language-model-tools",
+          "webcure"
+        ],
         "toolReferenceName": "explorer_extract",
         "displayName": "Extract Content",
         "icon": "$(file-text)",
@@ -79,15 +114,29 @@
         "inputSchema": {
           "type": "object",
           "properties": {
-            "selector": { "type": "string", "description": "Optional CSS selector to scope extraction." },
-            "maxLength": { "type": "number", "description": "Optional maximum length of returned text.", "default": 8000 },
-            "trimWhitespace": { "type": "boolean", "description": "Normalize spaces and line breaks.", "default": true }
+            "selector": {
+              "type": "string",
+              "description": "Optional CSS selector to scope extraction."
+            },
+            "maxLength": {
+              "type": "number",
+              "description": "Optional maximum length of returned text.",
+              "default": 8000
+            },
+            "trimWhitespace": {
+              "type": "boolean",
+              "description": "Normalize spaces and line breaks.",
+              "default": true
+            }
           }
         }
       },
       {
         "name": "explorer_click",
-        "tags": ["language-model-tools", "webcure"],
+        "tags": [
+          "language-model-tools",
+          "webcure"
+        ],
         "toolReferenceName": "explorer_click",
         "displayName": "Click Element",
         "icon": "$(mouse)",
@@ -97,22 +146,60 @@
         "inputSchema": {
           "type": "object",
           "properties": {
-            "element": { "type": "string", "description": "Human-readable element description." },
-            "ref": { "type": "string", "description": "Element reference from explorer_find or snapshot (e.g., 'e1', 'e2')." },
-            "text": { "type": "string", "description": "Find element by visible text (alternative to ref)." },
-            "selector": { "type": "string", "description": "Find element by CSS/XPath selector (alternative to ref)." },
-            "button": { "type": "string", "enum": ["left", "right", "middle"], "default": "left" },
-            "double": { "type": "boolean", "default": false },
-            "toLeftOf": { "type": "string", "description": "Find element to the left of this text." },
-            "toRightOf": { "type": "string", "description": "Find element to the right of this text." },
-            "above": { "type": "string", "description": "Find element above this text." },
-            "below": { "type": "string", "description": "Find element below this text." }
+            "element": {
+              "type": "string",
+              "description": "Human-readable element description."
+            },
+            "ref": {
+              "type": "string",
+              "description": "Element reference from explorer_find or snapshot (e.g., 'e1', 'e2')."
+            },
+            "text": {
+              "type": "string",
+              "description": "Find element by visible text (alternative to ref)."
+            },
+            "selector": {
+              "type": "string",
+              "description": "Find element by CSS/XPath selector (alternative to ref)."
+            },
+            "button": {
+              "type": "string",
+              "enum": [
+                "left",
+                "right",
+                "middle"
+              ],
+              "default": "left"
+            },
+            "double": {
+              "type": "boolean",
+              "default": false
+            },
+            "toLeftOf": {
+              "type": "string",
+              "description": "Find element to the left of this text."
+            },
+            "toRightOf": {
+              "type": "string",
+              "description": "Find element to the right of this text."
+            },
+            "above": {
+              "type": "string",
+              "description": "Find element above this text."
+            },
+            "below": {
+              "type": "string",
+              "description": "Find element below this text."
+            }
           }
         }
       },
       {
         "name": "explorer_hover",
-        "tags": ["language-model-tools", "webcure"],
+        "tags": [
+          "language-model-tools",
+          "webcure"
+        ],
         "toolReferenceName": "explorer_hover",
         "displayName": "Hover Element",
         "icon": "$(eye)",
@@ -122,20 +209,47 @@
         "inputSchema": {
           "type": "object",
           "properties": {
-            "element": { "type": "string", "description": "Human-readable element description." },
-            "ref": { "type": "string", "description": "Element reference from explorer_find or snapshot (e.g., 'e1', 'e2')." },
-            "text": { "type": "string", "description": "Find element by visible text (alternative to ref)." },
-            "selector": { "type": "string", "description": "Find element by CSS/XPath selector (alternative to ref)." },
-            "toLeftOf": { "type": "string", "description": "Find element to the left of this text." },
-            "toRightOf": { "type": "string", "description": "Find element to the right of this text." },
-            "above": { "type": "string", "description": "Find element above this text." },
-            "below": { "type": "string", "description": "Find element below this text." }
+            "element": {
+              "type": "string",
+              "description": "Human-readable element description."
+            },
+            "ref": {
+              "type": "string",
+              "description": "Element reference from explorer_find or snapshot (e.g., 'e1', 'e2')."
+            },
+            "text": {
+              "type": "string",
+              "description": "Find element by visible text (alternative to ref)."
+            },
+            "selector": {
+              "type": "string",
+              "description": "Find element by CSS/XPath selector (alternative to ref)."
+            },
+            "toLeftOf": {
+              "type": "string",
+              "description": "Find element to the left of this text."
+            },
+            "toRightOf": {
+              "type": "string",
+              "description": "Find element to the right of this text."
+            },
+            "above": {
+              "type": "string",
+              "description": "Find element above this text."
+            },
+            "below": {
+              "type": "string",
+              "description": "Find element below this text."
+            }
           }
         }
       },
       {
         "name": "explorer_type",
-        "tags": ["language-model-tools", "webcure"],
+        "tags": [
+          "language-model-tools",
+          "webcure"
+        ],
         "toolReferenceName": "explorer_type",
         "displayName": "Type Text",
         "icon": "$(edit)",
@@ -145,24 +259,64 @@
         "inputSchema": {
           "type": "object",
           "properties": {
-            "element": { "type": "string", "description": "Human-readable element description." },
-            "ref": { "type": "string", "description": "Element reference from explorer_find or snapshot (e.g., 'e1', 'e2')." },
-            "text": { "type": "string", "description": "Find element by visible text (alternative to ref)." },
-            "selector": { "type": "string", "description": "Find element by CSS/XPath selector (alternative to ref)." },
-            "value": { "type": "string", "description": "Text to type into the element." },
-            "submit": { "type": "boolean", "default": false, "description": "Press Enter after typing." },
-            "slowly": { "type": "boolean", "default": false, "description": "Type one character at a time." },
-            "toLeftOf": { "type": "string", "description": "Find element to the left of this text." },
-            "toRightOf": { "type": "string", "description": "Find element to the right of this text." },
-            "above": { "type": "string", "description": "Find element above this text." },
-            "below": { "type": "string", "description": "Find element below this text." }
+            "element": {
+              "type": "string",
+              "description": "Human-readable element description."
+            },
+            "ref": {
+              "type": "string",
+              "description": "Element reference from explorer_find or snapshot (e.g., 'e1', 'e2')."
+            },
+            "text": {
+              "type": "string",
+              "description": "Find element by visible text (alternative to ref)."
+            },
+            "selector": {
+              "type": "string",
+              "description": "Find element by CSS/XPath selector (alternative to ref)."
+            },
+            "value": {
+              "type": "string",
+              "description": "Text to type into the element."
+            },
+            "submit": {
+              "type": "boolean",
+              "default": false,
+              "description": "Press Enter after typing."
+            },
+            "slowly": {
+              "type": "boolean",
+              "default": false,
+              "description": "Type one character at a time."
+            },
+            "toLeftOf": {
+              "type": "string",
+              "description": "Find element to the left of this text."
+            },
+            "toRightOf": {
+              "type": "string",
+              "description": "Find element to the right of this text."
+            },
+            "above": {
+              "type": "string",
+              "description": "Find element above this text."
+            },
+            "below": {
+              "type": "string",
+              "description": "Find element below this text."
+            }
           },
-          "required": ["value"]
+          "required": [
+            "value"
+          ]
         }
       },
       {
         "name": "explorer_type_from_file",
-        "tags": ["language-model-tools", "webcure"],
+        "tags": [
+          "language-model-tools",
+          "webcure"
+        ],
         "toolReferenceName": "explorer_type_from_file",
         "displayName": "Type Text from File",
         "icon": "$(file-code)",
@@ -172,23 +326,59 @@
         "inputSchema": {
           "type": "object",
           "properties": {
-            "ref": { "type": "string", "description": "Element reference from explorer_find (e.g., 'e1', 'e2')." },
-            "text": { "type": "string", "description": "Find element by visible text (alternative to ref)." },
-            "selector": { "type": "string", "description": "Find element by CSS selector (alternative to ref)." },
-            "element": { "type": "string", "description": "Human-readable element description for confirmation." },
-            "filePath": { "type": "string", "description": "Absolute path to file containing text to type." },
-            "submit": { "type": "boolean", "default": false, "description": "Press Enter after typing." },
-            "toLeftOf": { "type": "string", "description": "Find element to the left of this text." },
-            "toRightOf": { "type": "string", "description": "Find element to the right of this text." },
-            "above": { "type": "string", "description": "Find element above this text." },
-            "below": { "type": "string", "description": "Find element below this text." }
+            "ref": {
+              "type": "string",
+              "description": "Element reference from explorer_find (e.g., 'e1', 'e2')."
+            },
+            "text": {
+              "type": "string",
+              "description": "Find element by visible text (alternative to ref)."
+            },
+            "selector": {
+              "type": "string",
+              "description": "Find element by CSS selector (alternative to ref)."
+            },
+            "element": {
+              "type": "string",
+              "description": "Human-readable element description for confirmation."
+            },
+            "filePath": {
+              "type": "string",
+              "description": "Absolute path to file containing text to type."
+            },
+            "submit": {
+              "type": "boolean",
+              "default": false,
+              "description": "Press Enter after typing."
+            },
+            "toLeftOf": {
+              "type": "string",
+              "description": "Find element to the left of this text."
+            },
+            "toRightOf": {
+              "type": "string",
+              "description": "Find element to the right of this text."
+            },
+            "above": {
+              "type": "string",
+              "description": "Find element above this text."
+            },
+            "below": {
+              "type": "string",
+              "description": "Find element below this text."
+            }
           },
-          "required": ["filePath"]
+          "required": [
+            "filePath"
+          ]
         }
       },
       {
         "name": "explorer_wait_for",
-        "tags": ["language-model-tools", "webcure"],
+        "tags": [
+          "language-model-tools",
+          "webcure"
+        ],
         "toolReferenceName": "explorer_wait_for",
         "displayName": "Wait For",
         "icon": "$(clock)",
@@ -198,16 +388,32 @@
         "inputSchema": {
           "type": "object",
           "properties": {
-            "time": { "type": "number", "description": "Seconds to wait." },
-            "text": { "type": "string", "description": "Text to wait for." },
-            "textGone": { "type": "string", "description": "Text to wait to disappear." },
-            "timeout": { "type": "number", "default": 30000, "description": "Max wait time in ms." }
+            "time": {
+              "type": "number",
+              "description": "Seconds to wait."
+            },
+            "text": {
+              "type": "string",
+              "description": "Text to wait for."
+            },
+            "textGone": {
+              "type": "string",
+              "description": "Text to wait to disappear."
+            },
+            "timeout": {
+              "type": "number",
+              "default": 30000,
+              "description": "Max wait time in ms."
+            }
           }
         }
       },
       {
         "name": "explorer_wait_for_element",
-        "tags": ["language-model-tools", "webcure"],
+        "tags": [
+          "language-model-tools",
+          "webcure"
+        ],
         "toolReferenceName": "explorer_wait_for_element",
         "displayName": "Wait For Element",
         "icon": "$(watch)",
@@ -217,21 +423,61 @@
         "inputSchema": {
           "type": "object",
           "properties": {
-            "element": { "type": "string", "description": "Human-readable element description." },
-            "ref": { "type": "string", "description": "Element reference from explorer_find or snapshot." },
-            "text": { "type": "string", "description": "Find element by visible text." },
-            "selector": { "type": "string", "description": "Find element by CSS/XPath selector." },
-            "toLeftOf": { "type": "string" }, "toRightOf": { "type": "string" },
-            "above": { "type": "string" }, "below": { "type": "string" },
-            "state": { "type": "string", "enum": ["visible", "hidden", "attached", "detached"], "description": "What state to wait for." },
-            "timeout": { "type": "number", "default": 30000, "description": "Max wait time in ms." }
+            "element": {
+              "type": "string",
+              "description": "Human-readable element description."
+            },
+            "ref": {
+              "type": "string",
+              "description": "Element reference from explorer_find or snapshot."
+            },
+            "text": {
+              "type": "string",
+              "description": "Find element by visible text."
+            },
+            "selector": {
+              "type": "string",
+              "description": "Find element by CSS/XPath selector."
+            },
+            "toLeftOf": {
+              "type": "string"
+            },
+            "toRightOf": {
+              "type": "string"
+            },
+            "above": {
+              "type": "string"
+            },
+            "below": {
+              "type": "string"
+            },
+            "state": {
+              "type": "string",
+              "enum": [
+                "visible",
+                "hidden",
+                "attached",
+                "detached"
+              ],
+              "description": "What state to wait for."
+            },
+            "timeout": {
+              "type": "number",
+              "default": 30000,
+              "description": "Max wait time in ms."
+            }
           },
-          "required": ["state"]
+          "required": [
+            "state"
+          ]
         }
       },
       {
         "name": "explorer_select_option",
-        "tags": ["language-model-tools", "webcure"],
+        "tags": [
+          "language-model-tools",
+          "webcure"
+        ],
         "toolReferenceName": "explorer_select_option",
         "displayName": "Select Option",
         "icon": "$(list-selection)",
@@ -241,18 +487,49 @@
         "inputSchema": {
           "type": "object",
           "properties": {
-            "element": { "type": "string" }, "ref": { "type": "string" },
-            "text": { "type": "string" }, "selector": { "type": "string" },
-            "values": { "type": "array", "items": { "type": "string" }, "description": "Values or labels to select." },
-            "toLeftOf": { "type": "string" }, "toRightOf": { "type": "string" },
-            "above": { "type": "string" }, "below": { "type": "string" }
+            "element": {
+              "type": "string"
+            },
+            "ref": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            },
+            "selector": {
+              "type": "string"
+            },
+            "values": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Values or labels to select."
+            },
+            "toLeftOf": {
+              "type": "string"
+            },
+            "toRightOf": {
+              "type": "string"
+            },
+            "above": {
+              "type": "string"
+            },
+            "below": {
+              "type": "string"
+            }
           },
-          "required": ["values"]
+          "required": [
+            "values"
+          ]
         }
       },
       {
         "name": "explorer_fill_form",
-        "tags": ["language-model-tools", "webcure"],
+        "tags": [
+          "language-model-tools",
+          "webcure"
+        ],
         "toolReferenceName": "explorer_fill_form",
         "displayName": "Fill Form",
         "icon": "$(symbol-keyword)",
@@ -267,19 +544,45 @@
               "items": {
                 "type": "object",
                 "properties": {
-                  "name": { "type": "string" }, "type": { "type": "string", "enum": ["textbox", "checkbox", "radio", "combobox"] },
-                  "ref": { "type": "string" }, "value": { "type": "string" }
+                  "name": {
+                    "type": "string"
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "textbox",
+                      "checkbox",
+                      "radio",
+                      "combobox"
+                    ]
+                  },
+                  "ref": {
+                    "type": "string"
+                  },
+                  "value": {
+                    "type": "string"
+                  }
                 },
-                "required": ["name", "type", "ref", "value"]
+                "required": [
+                  "name",
+                  "type",
+                  "ref",
+                  "value"
+                ]
               }
             }
           },
-          "required": ["fields"]
+          "required": [
+            "fields"
+          ]
         }
       },
       {
         "name": "explorer_take_screenshot",
-        "tags": ["language-model-tools", "webcure"],
+        "tags": [
+          "language-model-tools",
+          "webcure"
+        ],
         "toolReferenceName": "explorer_take_screenshot",
         "displayName": "Take Screenshot",
         "icon": "$(device-camera)",
@@ -289,38 +592,75 @@
         "inputSchema": {
           "type": "object",
           "properties": {
-            "type": { "type": "string", "enum": ["png", "jpeg"], "default": "png" },
-            "fullPage": { "type": "boolean", "default": false },
-            "element": { "type": "string" }, "ref": { "type": "string" },
-            "outputPath": { "type": "string", "description": "Optional file path to save screenshot." }
+            "type": {
+              "type": "string",
+              "enum": [
+                "png",
+                "jpeg"
+              ],
+              "default": "png"
+            },
+            "fullPage": {
+              "type": "boolean",
+              "default": false
+            },
+            "element": {
+              "type": "string"
+            },
+            "ref": {
+              "type": "string"
+            },
+            "outputPath": {
+              "type": "string",
+              "description": "Optional file path to save screenshot."
+            }
           }
         }
       },
       {
         "name": "explorer_close",
-        "tags": ["language-model-tools", "webcure"],
+        "tags": [
+          "language-model-tools",
+          "webcure"
+        ],
         "toolReferenceName": "explorer_close",
         "displayName": "Close Browser",
         "icon": "$(close-all)",
         "canBeReferencedInPrompt": true,
         "userDescription": "Close the current browser page and dispose resources.",
         "modelDescription": "Close the page. Subsequent tools will re-open a new page automatically.",
-        "inputSchema": { "type": "object", "properties": {} }
+        "inputSchema": {
+          "type": "object",
+          "properties": {}
+        }
       },
       {
         "name": "explorer_console_messages",
-        "tags": ["language-model-tools", "webcure"],
+        "tags": [
+          "language-model-tools",
+          "webcure"
+        ],
         "toolReferenceName": "explorer_console_messages",
         "displayName": "Get Console Messages",
         "icon": "$(output)",
         "canBeReferencedInPrompt": true,
         "userDescription": "Return recent console messages from the page.",
         "modelDescription": "Returns all console messages since page creation. Filter to only errors if requested.",
-        "inputSchema": { "type": "object", "properties": { "onlyErrors": { "type": "boolean" } } }
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "onlyErrors": {
+              "type": "boolean"
+            }
+          }
+        }
       },
       {
         "name": "explorer_drag",
-        "tags": ["language-model-tools", "webcure"],
+        "tags": [
+          "language-model-tools",
+          "webcure"
+        ],
         "toolReferenceName": "explorer_drag",
         "displayName": "Drag And Drop",
         "icon": "$(grabber)",
@@ -330,15 +670,33 @@
         "inputSchema": {
           "type": "object",
           "properties": {
-            "startElement": { "type": "string" }, "startRef": { "type": "string" },
-            "endElement": { "type": "string" }, "endRef": { "type": "string" }
+            "startElement": {
+              "type": "string"
+            },
+            "startRef": {
+              "type": "string"
+            },
+            "endElement": {
+              "type": "string"
+            },
+            "endRef": {
+              "type": "string"
+            }
           },
-          "required": ["startElement", "startRef", "endElement", "endRef"]
+          "required": [
+            "startElement",
+            "startRef",
+            "endElement",
+            "endRef"
+          ]
         }
       },
       {
         "name": "explorer_evaluate",
-        "tags": ["language-model-tools", "webcure"],
+        "tags": [
+          "language-model-tools",
+          "webcure"
+        ],
         "toolReferenceName": "explorer_evaluate",
         "displayName": "Evaluate Script",
         "icon": "$(code)",
@@ -348,103 +706,207 @@
         "inputSchema": {
           "type": "object",
           "properties": {
-            "function": { "type": "string", "description": "Function expression like (el)=>el.textContent" },
-            "element": { "type": "string" }, "ref": { "type": "string" }
+            "function": {
+              "type": "string",
+              "description": "Function expression like (el)=>el.textContent"
+            },
+            "element": {
+              "type": "string"
+            },
+            "ref": {
+              "type": "string"
+            }
           },
-          "required": ["function"]
+          "required": [
+            "function"
+          ]
         }
       },
       {
         "name": "explorer_file_upload",
-        "tags": ["language-model-tools", "webcure"],
+        "tags": [
+          "language-model-tools",
+          "webcure"
+        ],
         "toolReferenceName": "explorer_file_upload",
         "displayName": "Upload File",
         "icon": "$(cloud-upload)",
         "canBeReferencedInPrompt": true,
         "userDescription": "Upload one or more files via file input or the file chooser.",
         "modelDescription": "Upload files. If selector is omitted, will wait for a file chooser. Paths must be absolute.",
-        "inputSchema": { "type": "object", "properties": { "selector": { "type": "string" }, "paths": { "type": "array", "items": { "type": "string" } } } }
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "selector": {
+              "type": "string"
+            },
+            "paths": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
       },
       {
         "name": "explorer_handle_dialog",
-        "tags": ["language-model-tools", "webcure"],
+        "tags": [
+          "language-model-tools",
+          "webcure"
+        ],
         "toolReferenceName": "explorer_handle_dialog",
         "displayName": "Handle Dialog",
         "icon": "$(comment)",
         "canBeReferencedInPrompt": true,
         "userDescription": "Accept or dismiss the most recent alert/confirm/prompt dialog.",
         "modelDescription": "Handle a dialog that is currently open.",
-        "inputSchema": { "type": "object", "properties": { "accept": { "type": "boolean" }, "promptText": { "type": "string" } }, "required": ["accept"] }
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "accept": {
+              "type": "boolean"
+            },
+            "promptText": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "accept"
+          ]
+        }
       },
       {
         "name": "explorer_navigate_back",
-        "tags": ["language-model-tools", "webcure"],
+        "tags": [
+          "language-model-tools",
+          "webcure"
+        ],
         "toolReferenceName": "explorer_navigate_back",
         "displayName": "Navigate Back",
         "icon": "$(arrow-left)",
         "canBeReferencedInPrompt": true,
         "userDescription": "Go back to the previous page.",
         "modelDescription": "Go back to the previous page in history.",
-        "inputSchema": { "type": "object", "properties": {} }
+        "inputSchema": {
+          "type": "object",
+          "properties": {}
+        }
       },
       {
         "name": "explorer_network_requests",
-        "tags": ["language-model-tools", "webcure"],
+        "tags": [
+          "language-model-tools",
+          "webcure"
+        ],
         "toolReferenceName": "explorer_network_requests",
         "displayName": "Get Network Requests",
         "icon": "$(rss)",
         "canBeReferencedInPrompt": true,
         "userDescription": "Return recent network requests.",
         "modelDescription": "Returns all network requests observed since page creation.",
-        "inputSchema": { "type": "object", "properties": {} }
+        "inputSchema": {
+          "type": "object",
+          "properties": {}
+        }
       },
       {
         "name": "explorer_press_key",
-        "tags": ["language-model-tools", "webcure"],
+        "tags": [
+          "language-model-tools",
+          "webcure"
+        ],
         "toolReferenceName": "explorer_press_key",
         "displayName": "Press Key",
         "icon": "$(keyboard)",
         "canBeReferencedInPrompt": true,
         "userDescription": "Press a key on the keyboard.",
         "modelDescription": "Press a key, e.g. Enter, ArrowLeft, a.",
-        "inputSchema": { "type": "object", "properties": { "key": { "type": "string" } }, "required": ["key"] }
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "key": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "key"
+          ]
+        }
       },
       {
         "name": "explorer_snapshot",
-        "tags": ["language-model-tools", "webcure"],
+        "tags": [
+          "language-model-tools",
+          "webcure"
+        ],
         "toolReferenceName": "explorer_snapshot",
         "displayName": "Accessibility Snapshot",
         "icon": "$(search)",
         "canBeReferencedInPrompt": true,
         "userDescription": "Capture the accessibility tree with element references.",
         "modelDescription": "Capture accessibility snapshot of the current page with element references (refs). Use this first to get refs before interacting with elements.",
-        "inputSchema": { "type": "object", "properties": {} }
+        "inputSchema": {
+          "type": "object",
+          "properties": {}
+        }
       },
       {
         "name": "explorer_tabs",
-        "tags": ["language-model-tools", "webcure"],
+        "tags": [
+          "language-model-tools",
+          "webcure"
+        ],
         "toolReferenceName": "explorer_tabs",
         "displayName": "Manage Tabs",
         "icon": "$(multiple-windows)",
         "canBeReferencedInPrompt": true,
         "userDescription": "List, create, close, or select a tab.",
         "modelDescription": "Manage tabs: list, new, close, select. Index is 1-based.",
-        "inputSchema": { "type": "object", "properties": { "action": { "type": "string", "enum": ["list", "new", "close", "select"] }, "index": { "type": "number" } }, "required": ["action"] }
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "list",
+                "new",
+                "close",
+                "select"
+              ]
+            },
+            "index": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "action"
+          ]
+        }
       },
       {
         "name": "explorer_install",
-        "tags": ["language-model-tools", "webcure"],
+        "tags": [
+          "language-model-tools",
+          "webcure"
+        ],
         "toolReferenceName": "explorer_install",
         "displayName": "Install Browser",
         "icon": "$(cloud-download)",
         "canBeReferencedInPrompt": true,
         "userDescription": "No-op: this extension uses system Chrome or Edge.",
         "modelDescription": "No installation performed. Use system Chrome (default) or set WEBEXPLORER_BROWSER=msedge.",
-        "inputSchema": { "type": "object", "properties": {} }
+        "inputSchema": {
+          "type": "object",
+          "properties": {}
+        }
       },
       {
         "name": "explorer_find",
-        "tags": ["language-model-tools", "webcure"],
+        "tags": [
+          "language-model-tools",
+          "webcure"
+        ],
         "toolReferenceName": "explorer_find",
         "displayName": "Find Element (Helium-style)",
         "icon": "$(search-fuzzy)",
@@ -454,16 +916,39 @@
         "inputSchema": {
           "type": "object",
           "properties": {
-            "text": { "type": "string" }, "selector": { "type": "string" },
-            "near": { "type": "string" }, "toLeftOf": { "type": "string" },
-            "toRightOf": { "type": "string" }, "above": { "type": "string" },
-            "below": { "type": "string" }, "index": { "type": "number" }
+            "text": {
+              "type": "string"
+            },
+            "selector": {
+              "type": "string"
+            },
+            "near": {
+              "type": "string"
+            },
+            "toLeftOf": {
+              "type": "string"
+            },
+            "toRightOf": {
+              "type": "string"
+            },
+            "above": {
+              "type": "string"
+            },
+            "below": {
+              "type": "string"
+            },
+            "index": {
+              "type": "number"
+            }
           }
         }
       },
       {
         "name": "explorer_interact",
-        "tags": ["language-model-tools", "webcure"],
+        "tags": [
+          "language-model-tools",
+          "webcure"
+        ],
         "toolReferenceName": "explorer_interact",
         "displayName": "Interact with Element (Helium-style)",
         "icon": "$(play)",
@@ -473,19 +958,57 @@
         "inputSchema": {
           "type": "object",
           "properties": {
-            "ref": { "type": "string" }, "text": { "type": "string" },
-            "selector": { "type": "string" },
-            "action": { "type": "string", "enum": ["click", "type", "hover", "clear", "select", "focus", "check", "uncheck", "press"] },
-            "value": { "type": "string" },
-            "toLeftOf": { "type": "string" }, "toRightOf": { "type": "string" },
-            "above": { "type": "string" }, "below": { "type": "string" }
+            "ref": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            },
+            "selector": {
+              "type": "string"
+            },
+            "action": {
+              "type": "string",
+              "enum": [
+                "click",
+                "type",
+                "hover",
+                "clear",
+                "select",
+                "focus",
+                "check",
+                "uncheck",
+                "press"
+              ]
+            },
+            "value": {
+              "type": "string"
+            },
+            "toLeftOf": {
+              "type": "string"
+            },
+            "toRightOf": {
+              "type": "string"
+            },
+            "above": {
+              "type": "string"
+            },
+            "below": {
+              "type": "string"
+            }
           },
-          "required": ["action"]
+          "required": [
+            "action"
+          ]
         }
       },
       {
         "name": "explorer_scrape_menu",
-        "tags": ["language-model-tools", "webcure", "scraping"],
+        "tags": [
+          "language-model-tools",
+          "webcure",
+          "scraping"
+        ],
         "toolReferenceName": "explorer_scrape_menu",
         "displayName": "Scrape Menu Structure",
         "icon": "$(list-tree)",
@@ -495,16 +1018,37 @@
         "inputSchema": {
           "type": "object",
           "properties": {
-            "menuSelector": { "type": "string" }, "containerSelector": { "type": "string" },
-            "expanderSelector": { "type": "string" }, "expandTimeout": { "type": "number" },
-            "maxDepth": { "type": "number" }, "includeUrls": { "type": "boolean" },
-            "outputPath": { "type": "string" }
+            "menuSelector": {
+              "type": "string"
+            },
+            "containerSelector": {
+              "type": "string"
+            },
+            "expanderSelector": {
+              "type": "string"
+            },
+            "expandTimeout": {
+              "type": "number"
+            },
+            "maxDepth": {
+              "type": "number"
+            },
+            "includeUrls": {
+              "type": "boolean"
+            },
+            "outputPath": {
+              "type": "string"
+            }
           }
         }
       },
       {
         "name": "explorer_scrape_page",
-        "tags": ["language-model-tools", "webcure", "scraping"],
+        "tags": [
+          "language-model-tools",
+          "webcure",
+          "scraping"
+        ],
         "toolReferenceName": "explorer_scrape_page",
         "displayName": "Scrape Page Content",
         "icon": "$(file-code)",
@@ -514,48 +1058,207 @@
         "inputSchema": {
           "type": "object",
           "properties": {
-            "includeFormFields": { "type": "boolean" }, "includeTables": { "type": "boolean" },
-            "includeFilters": { "type": "boolean" }, "maxTableRows": { "type": "number" },
-            "formSelector": { "type": "string" }, "tableSelector": { "type": "string" },
-            "outputPath": { "type": "string" }
+            "includeFormFields": {
+              "type": "boolean"
+            },
+            "includeTables": {
+              "type": "boolean"
+            },
+            "includeFilters": {
+              "type": "boolean"
+            },
+            "maxTableRows": {
+              "type": "number"
+            },
+            "formSelector": {
+              "type": "string"
+            },
+            "tableSelector": {
+              "type": "string"
+            },
+            "outputPath": {
+              "type": "string"
+            }
           }
         }
       }
     ],
     "commands": [
-      { "command": "webcure.startApiServer", "title": "Start API Server", "category": "WebCure" },
-      { "command": "webcure.stopApiServer", "title": "Stop API Server", "category": "WebCure" },
-      { "command": "webcure.runScript", "title": "Run Script", "category": "WebCure" },
-      { "command": "webcure.startRecording", "title": "Start Recording", "category": "WebCure" },
-      { "command": "webcure.stopRecording", "title": "Stop Recording (Generate Python Script)", "category": "WebCure" },
-      { "command": "webcure.testNavigate", "title": "Navigate to URL", "category": "WebCure" },
-      { "command": "webcure.testResize", "title": "Resize Browser Window", "category": "WebCure" },
-      { "command": "webcure.testExtract", "title": "Extract Text Content", "category": "WebCure" },
-      { "command": "webcure.testClick", "title": "Click Element", "category": "WebCure" },
-      { "command": "webcure.testHover", "title": "Hover Element", "category": "WebCure" },
-      { "command": "webcure.testType", "title": "Type Text", "category": "WebCure" },
-      { "command": "webcure.testTypeFromFile", "title": "Type Text from File", "category": "WebCure" },
-      { "command": "webcure.testWaitFor", "title": "Wait For Text", "category": "WebCure" },
-      { "command": "webcure.testWaitForElement", "title": "Wait For Element", "category": "WebCure" },
-      { "command": "webcure.testSelectOption", "title": "Select Option", "category": "WebCure" },
-      { "command": "webcure.testFillForm", "title": "Fill Form", "category": "WebCure" },
-      { "command": "webcure.testScreenshot", "title": "Take Screenshot", "category": "WebCure" },
-      { "command": "webcure.testClose", "title": "Close Browser", "category": "WebCure" },
-      { "command": "webcure.testConsoleMessages", "title": "Get Console Messages", "category": "WebCure" },
-      { "command": "webcure.testDrag", "title": "Drag Element", "category": "WebCure" },
-      { "command": "webcure.testEvaluate", "title": "Evaluate JavaScript", "category": "WebCure" },
-      { "command": "webcure.testFileUpload", "title": "Upload File", "category": "WebCure" },
-      { "command": "webcure.testHandleDialog", "title": "Handle Dialog", "category": "WebCure" },
-      { "command": "webcure.testNavigateBack", "title": "Navigate Back", "category": "WebCure" },
-      { "command": "webcure.testNetworkRequests", "title": "Get Network Requests", "category": "WebCure" },
-      { "command": "webcure.testPressKey", "title": "Press Key", "category": "WebCure" },
-      { "command": "webcure.testSnapshot", "title": "Take Snapshot", "category": "WebCure" },
-      { "command": "webcure.testTabs", "title": "Manage Tabs", "category": "WebCure" },
-      { "command": "webcure.testFind", "title": "Find Element", "category": "WebCure" },
-      { "command": "webcure.testInteract", "title": "Interact with Element", "category": "WebCure" },
-      { "command": "webcure.testScrapeMenu", "title": "Scrape Menu/Navigation", "category": "WebCure" },
-      { "command": "webcure.testScrapePage", "title": "Scrape Page Structure", "category": "WebCure" },
-      { "command": "webcure.testMenu", "title": "Tools Menu", "category": "WebCure" }
+      {
+        "command": "webcure.startApiServer",
+        "title": "Start API Server",
+        "category": "WebCure"
+      },
+      {
+        "command": "webcure.stopApiServer",
+        "title": "Stop API Server",
+        "category": "WebCure"
+      },
+      {
+        "command": "webcure.runScript",
+        "title": "Run Script",
+        "category": "WebCure"
+      },
+      {
+        "command": "webcure.startRecording",
+        "title": "Start Recording",
+        "category": "WebCure"
+      },
+      {
+        "command": "webcure.stopRecording",
+        "title": "Stop Recording (Generate Python Script)",
+        "category": "WebCure"
+      },
+      {
+        "command": "webcure.startStepRecorder",
+        "title": "Record Steps (Automatic)",
+        "category": "WebCure"
+      },
+      {
+        "command": "webcure.stopStepRecorder",
+        "title": "Stop Recording Steps",
+        "category": "WebCure"
+      },
+      {
+        "command": "webcure.testNavigate",
+        "title": "Navigate to URL",
+        "category": "WebCure"
+      },
+      {
+        "command": "webcure.testResize",
+        "title": "Resize Browser Window",
+        "category": "WebCure"
+      },
+      {
+        "command": "webcure.testExtract",
+        "title": "Extract Text Content",
+        "category": "WebCure"
+      },
+      {
+        "command": "webcure.testClick",
+        "title": "Click Element",
+        "category": "WebCure"
+      },
+      {
+        "command": "webcure.testHover",
+        "title": "Hover Element",
+        "category": "WebCure"
+      },
+      {
+        "command": "webcure.testType",
+        "title": "Type Text",
+        "category": "WebCure"
+      },
+      {
+        "command": "webcure.testTypeFromFile",
+        "title": "Type Text from File",
+        "category": "WebCure"
+      },
+      {
+        "command": "webcure.testWaitFor",
+        "title": "Wait For Text",
+        "category": "WebCure"
+      },
+      {
+        "command": "webcure.testWaitForElement",
+        "title": "Wait For Element",
+        "category": "WebCure"
+      },
+      {
+        "command": "webcure.testSelectOption",
+        "title": "Select Option",
+        "category": "WebCure"
+      },
+      {
+        "command": "webcure.testFillForm",
+        "title": "Fill Form",
+        "category": "WebCure"
+      },
+      {
+        "command": "webcure.testScreenshot",
+        "title": "Take Screenshot",
+        "category": "WebCure"
+      },
+      {
+        "command": "webcure.testClose",
+        "title": "Close Browser",
+        "category": "WebCure"
+      },
+      {
+        "command": "webcure.testConsoleMessages",
+        "title": "Get Console Messages",
+        "category": "WebCure"
+      },
+      {
+        "command": "webcure.testDrag",
+        "title": "Drag Element",
+        "category": "WebCure"
+      },
+      {
+        "command": "webcure.testEvaluate",
+        "title": "Evaluate JavaScript",
+        "category": "WebCure"
+      },
+      {
+        "command": "webcure.testFileUpload",
+        "title": "Upload File",
+        "category": "WebCure"
+      },
+      {
+        "command": "webcure.testHandleDialog",
+        "title": "Handle Dialog",
+        "category": "WebCure"
+      },
+      {
+        "command": "webcure.testNavigateBack",
+        "title": "Navigate Back",
+        "category": "WebCure"
+      },
+      {
+        "command": "webcure.testNetworkRequests",
+        "title": "Get Network Requests",
+        "category": "WebCure"
+      },
+      {
+        "command": "webcure.testPressKey",
+        "title": "Press Key",
+        "category": "WebCure"
+      },
+      {
+        "command": "webcure.testSnapshot",
+        "title": "Take Snapshot",
+        "category": "WebCure"
+      },
+      {
+        "command": "webcure.testTabs",
+        "title": "Manage Tabs",
+        "category": "WebCure"
+      },
+      {
+        "command": "webcure.testFind",
+        "title": "Find Element",
+        "category": "WebCure"
+      },
+      {
+        "command": "webcure.testInteract",
+        "title": "Interact with Element",
+        "category": "WebCure"
+      },
+      {
+        "command": "webcure.testScrapeMenu",
+        "title": "Scrape Menu/Navigation",
+        "category": "WebCure"
+      },
+      {
+        "command": "webcure.testScrapePage",
+        "title": "Scrape Page Structure",
+        "category": "WebCure"
+      },
+      {
+        "command": "webcure.testMenu",
+        "title": "Tools Menu",
+        "category": "WebCure"
+      }
     ],
     "configuration": {
       "title": "WebCure",
