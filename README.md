@@ -470,16 +470,16 @@ When recording stops, the Markdown file opens automatically in the editor previe
 
 ### What Gets Captured
 
-| User Action            | Recorded As                                          | Screenshot                                |
-| ---------------------- | ---------------------------------------------------- | ----------------------------------------- |
-| Click a link or button | `Clicked on button 'Login'`                          | Taken after the page reacts to the click  |
-| Click a dropdown trigger | `Clicked on button 'Options'`                      | Captured via `pointerdown` for Radix UI   |
-| Click a menu item      | `Selected 'Edit' from 'Options' dropdown`            | ARIA-aware with trigger label lookup      |
-| Type into a field      | `Typed 'admin' into 'Username'`                      | Taken immediately (shows the typed value) |
-| Type a password        | `Typed '********' into 'Password'`                   | Password value is masked                  |
-| Press Enter            | `Pressed 'Enter' on 'Search'`                        | Taken after the page reacts               |
-| Navigate to URL        | `Performed 'navigate' on 'Navigated to https://...'` | Taken after page load                     |
-| Close the browser      | `Performed 'close' on 'Browser window closed'`       | No screenshot (browser is gone)           |
+| User Action              | Recorded As                                          | Screenshot                                |
+| ------------------------ | ---------------------------------------------------- | ----------------------------------------- |
+| Click a link or button   | `Clicked on button 'Login'`                          | Taken after the page reacts to the click  |
+| Click a dropdown trigger | `Clicked on button 'Options'`                        | Captured via `pointerdown` for Radix UI   |
+| Click a menu item        | `Selected 'Edit' from 'Options' dropdown`            | ARIA-aware with trigger label lookup      |
+| Type into a field        | `Typed 'admin' into 'Username'`                      | Taken immediately (shows the typed value) |
+| Type a password          | `Typed '********' into 'Password'`                   | Password value is masked                  |
+| Press Enter              | `Pressed 'Enter' on 'Search'`                        | Taken after the page reacts               |
+| Navigate to URL          | `Performed 'navigate' on 'Navigated to https://...'` | Taken after page load                     |
+| Close the browser        | `Performed 'close' on 'Browser window closed'`       | No screenshot (browser is gone)           |
 
 ### Output Structure
 

@@ -18,11 +18,11 @@ This session addressed three issues identified in a diagnostic report about the 
 
 A Cursor agent was tasked with navigating to the AVIQ app at `http://localhost:3000` and diagnosing why the Step Recorder failed to capture certain interactions. The agent produced a report identifying three issues:
 
-| # | Issue | Root Cause |
-|---|-------|------------|
-| 1 | Browser does not open maximized | Hardcoded viewport of 1280×800, no `--start-maximized` arg |
-| 2 | Clicking Radix UI dropdown trigger ("+ New") is not recorded | Radix opens menu on `pointerdown`; the subsequent `click` fires on `document.body` which the recorder ignores |
-| 3 | Menu item clicks described generically | No ARIA role awareness; "Clicked on div 'Entitlement Review'" instead of dropdown context |
+| #   | Issue                                                        | Root Cause                                                                                                    |
+| --- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| 1   | Browser does not open maximized                              | Hardcoded viewport of 1280×800, no `--start-maximized` arg                                                    |
+| 2   | Clicking Radix UI dropdown trigger ("+ New") is not recorded | Radix opens menu on `pointerdown`; the subsequent `click` fires on `document.body` which the recorder ignores |
+| 3   | Menu item clicks described generically                       | No ARIA role awareness; "Clicked on div 'Entitlement Review'" instead of dropdown context                     |
 
 ---
 
@@ -73,10 +73,10 @@ A Cursor agent was tasked with navigating to the AVIQ app at `http://localhost:3
 
 **Fix:** Added two new commands to the file bridge and CLI:
 
-| CLI Command | Description |
-|---|---|
+| CLI Command                     | Description                                                    |
+| ------------------------------- | -------------------------------------------------------------- |
 | `startStepRecorder [url=<URL>]` | Start automatic step recording, optionally navigating to a URL |
-| `stopStepRecorder` | Stop step recording and generate the Markdown output |
+| `stopStepRecorder`              | Stop step recording and generate the Markdown output           |
 
 **Files changed:**
 
@@ -84,6 +84,7 @@ A Cursor agent was tasked with navigating to the AVIQ app at `http://localhost:3
 - **`src/bridge/cli-template.js`** — Added help text entries for both new commands
 
 **Usage:**
+
 ```bash
 node .webcure/cli.js startStepRecorder url=https://example.com
 # ... user interacts with the browser ...
@@ -94,12 +95,12 @@ node .webcure/cli.js stopStepRecorder
 
 ## Files Changed
 
-| File | Type | Changes |
-|------|------|---------|
+| File                            | Type     | Changes                                                                                                                                                                                                     |
+| ------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `src/recorder/step-recorder.ts` | Modified | Added `pointerdown` listener (+39 lines), ARIA role detection in `extractElementIdentifier` (+26 lines), menu-aware formatting in `formatActionDescription` (+12 lines), deduplication tracking (+13 lines) |
-| `src/bridge/file-bridge.ts` | Modified | Imported step-recorder module, added `startStepRecorder` and `stopStepRecorder` command cases (+12 lines) |
-| `src/bridge/cli-template.js` | Modified | Added help text for two new CLI commands (+2 lines) |
-| `status/project_status_05.md` | **New** | This file |
+| `src/bridge/file-bridge.ts`     | Modified | Imported step-recorder module, added `startStepRecorder` and `stopStepRecorder` command cases (+12 lines)                                                                                                   |
+| `src/bridge/cli-template.js`    | Modified | Added help text for two new CLI commands (+2 lines)                                                                                                                                                         |
+| `status/project_status_05.md`   | **New**  | This file                                                                                                                                                                                                   |
 
 ---
 
@@ -109,21 +110,21 @@ node .webcure/cli.js stopStepRecorder
 
 Test site: [Radix UI Themes Playground](https://www.radix-ui.com/themes/playground) — Dropdown Menu section
 
-| Step | Action | Expected Recording | Actual Recording | Result |
-|------|--------|--------------------|------------------|--------|
-| 1 | Navigate to Radix playground | Navigation step recorded | `Performed 'navigate' on 'Navigated to https://www.radix-ui.com/themes/playg'` | PASS |
-| 2 | Click "Options" dropdown trigger | Button click recorded (via pointerdown) | `Clicked on button 'Options'` | PASS |
-| 3 | Click "Duplicate" menu item | Menu item with dropdown context | `Selected 'Duplicate ⌘ D' from 'Options' dropdown` | PASS |
-| 4 | Click second "Options" dropdown | Button click recorded | `Clicked on button 'Options'` | PASS |
-| 5 | Click "Duplicate" menu item | Menu item with dropdown context | `Selected 'Duplicate ⌘ D' from 'Options' dropdown` | PASS |
-| 6 | Close browser | Close step recorded | `Performed 'close' on 'Browser window closed'` | PASS |
+| Step | Action                           | Expected Recording                      | Actual Recording                                                               | Result |
+| ---- | -------------------------------- | --------------------------------------- | ------------------------------------------------------------------------------ | ------ |
+| 1    | Navigate to Radix playground     | Navigation step recorded                | `Performed 'navigate' on 'Navigated to https://www.radix-ui.com/themes/playg'` | PASS   |
+| 2    | Click "Options" dropdown trigger | Button click recorded (via pointerdown) | `Clicked on button 'Options'`                                                  | PASS   |
+| 3    | Click "Duplicate" menu item      | Menu item with dropdown context         | `Selected 'Duplicate ⌘ D' from 'Options' dropdown`                             | PASS   |
+| 4    | Click second "Options" dropdown  | Button click recorded                   | `Clicked on button 'Options'`                                                  | PASS   |
+| 5    | Click "Duplicate" menu item      | Menu item with dropdown context         | `Selected 'Duplicate ⌘ D' from 'Options' dropdown`                             | PASS   |
+| 6    | Close browser                    | Close step recorded                     | `Performed 'close' on 'Browser window closed'`                                 | PASS   |
 
 ### Step Recorder CLI Commands
 
-| Test | Result |
-|------|--------|
+| Test                                                               | Result                                                   |
+| ------------------------------------------------------------------ | -------------------------------------------------------- |
 | `startStepRecorder url=https://www.radix-ui.com/themes/playground` | `{"status": "ok", "result": {"recording": true}}` — PASS |
-| `stopStepRecorder` | Recording stopped, Markdown generated — PASS |
+| `stopStepRecorder`                                                 | Recording stopped, Markdown generated — PASS             |
 
 ---
 
@@ -138,6 +139,7 @@ During testing, the new CLI commands (`startStepRecorder` / `stopStepRecorder`) 
 The issue resolved after a **full Mac restart**, suggesting that stale Chromium or Node.js processes from previous extension host sessions were interfering. This is a known behavior with Playwright-managed browser processes that can outlive VS Code. For users who encounter this after installing updates:
 
 **Workaround:** After installing an updated VSIX, if new commands return "Unknown command":
+
 1. Quit VS Code completely (Cmd+Q)
 2. Kill any stale Chrome/Chromium processes: `pkill -f "Google Chrome"` or `pkill -f chromium`
 3. Relaunch VS Code
