@@ -61,7 +61,7 @@ Recorded automatically starting at: ${new Date().toLocaleString()}
  * Extracts a concise English action description.
  */
 function formatActionDescription(eventData: any): string {
-    const { type, tagName, text, placeholder, ariaLabel, value, key, title, name, id, labelText, buttonText, inputType } = eventData || {};
+    const { type, tagName, text, placeholder, ariaLabel, value, key, title, name, id, labelText, buttonText, inputType, role, menuTriggerLabel } = eventData || {};
 
     // Determine the best name for the element
     // For buttons, prefer buttonText (the button's own value/label) over labelText (nearby label heuristic)
@@ -78,6 +78,18 @@ function formatActionDescription(eventData: any): string {
     const lowerTag = tagName ? tagName.toLowerCase() : '';
     const isButton = lowerTag === 'button' || (lowerTag === 'input' && ['submit', 'button', 'reset'].includes((inputType || '').toLowerCase()));
     const isInput = lowerTag === 'input' || lowerTag === 'textarea';
+
+    // ARIA-aware descriptions for menu items, options, etc.
+    const lowerRole = role ? role.toLowerCase() : '';
+    if (type === 'click' && ['menuitem', 'menuitemcheckbox', 'menuitemradio', 'option'].includes(lowerRole)) {
+        const itemLabel = text || ariaLabel || safeName;
+        const safeItemLabel = String(itemLabel).replace(/\s+/g, ' ').trim().substring(0, 50);
+        if (menuTriggerLabel) {
+            return `Selected '${safeItemLabel}' from '${menuTriggerLabel}' dropdown`;
+        }
+        return `Selected menu item '${safeItemLabel}'`;
+    }
+
     const tagDesc = isButton ? 'button' : isInput ? 'input' : lowerTag;
 
     if (type === 'click') {
@@ -308,6 +320,32 @@ export async function startStepRecorder(initialUrl?: string) {
                             buttonText = el.value || '';
                         }
 
+                        // ARIA role awareness: detect menu items, options, etc.
+                        const role = el.getAttribute('role') || '';
+                        let menuTriggerLabel = '';
+                        if (['menuitem', 'menuitemcheckbox', 'menuitemradio', 'option'].includes(role) ||
+                            el.getAttribute('data-slot') === 'dropdown-menu-item') {
+                            // Walk up to find the parent menu/listbox container
+                            const menuContainer = el.closest('[role="menu"], [role="listbox"], [role="menubar"]');
+                            if (menuContainer) {
+                                // Try aria-labelledby on the menu container to find the trigger
+                                const labelledById = menuContainer.getAttribute('aria-labelledby');
+                                if (labelledById) {
+                                    try {
+                                        const triggerEl = document.getElementById(labelledById);
+                                        if (triggerEl && triggerEl.innerText) {
+                                            menuTriggerLabel = triggerEl.innerText.trim();
+                                        }
+                                    } catch (e) {}
+                                }
+                                // Fallback: try aria-label on the menu container
+                                if (!menuTriggerLabel) {
+                                    const menuAriaLabel = menuContainer.getAttribute('aria-label');
+                                    if (menuAriaLabel) menuTriggerLabel = menuAriaLabel.trim();
+                                }
+                            }
+                        }
+
                         return {
                             tagName: el.tagName || '',
                             text: el.innerText ? el.innerText.trim() : '',
@@ -319,6 +357,8 @@ export async function startStepRecorder(initialUrl?: string) {
                             inputType: inputType,
                             labelText: labelText,
                             buttonText: buttonText,
+                            role: role,
+                            menuTriggerLabel: menuTriggerLabel,
                             cssSelector: getCssSelector(el),
                             xpath: getXPath(el)
                         };
@@ -327,6 +367,9 @@ export async function startStepRecorder(initialUrl?: string) {
                     // Event buffer for ordering 'type' before 'keydown(Enter)'
                     let eventBuffer = [];
                     let flushTimeout = null;
+                    // Track recent pointerdown-recorded elements to deduplicate with click events
+                    let lastPointerdownTarget = null;
+                    let lastPointerdownTime = 0;
 
                     function flushEvents() {
                         // Sort so that 'type' events come before 'keydown' events for the same tick
@@ -348,6 +391,45 @@ export async function startStepRecorder(initialUrl?: string) {
                         }
                     }
 
+                    // Listen for POINTERDOWN -- captures clicks on elements that
+                    // intercept the event before it becomes a full 'click' (e.g. Radix UI
+                    // DropdownMenu triggers that open a portal on pointerdown, causing the
+                    // subsequent click to land on document.body).
+                    document.addEventListener('pointerdown', (e) => {
+                        const target = e.target;
+                        if (!target || target === document.body || target === document.documentElement) return;
+
+                        // Only record pointerdown for interactive elements likely to
+                        // swallow the click: buttons, links, and elements with aria-haspopup.
+                        const tag = target.tagName ? target.tagName.toLowerCase() : '';
+                        const isInteractive = (
+                            tag === 'button' ||
+                            tag === 'a' ||
+                            target.getAttribute('role') === 'button' ||
+                            target.getAttribute('aria-haspopup') != null ||
+                            target.getAttribute('data-slot') === 'dropdown-menu-trigger' ||
+                            target.closest('button, a, [role="button"], [aria-haspopup], [data-slot="dropdown-menu-trigger"]')
+                        );
+                        if (!isInteractive) return;
+
+                        // Resolve to the nearest interactive ancestor if needed
+                        const interactiveEl = (tag === 'button' || tag === 'a' || target.getAttribute('role') === 'button' || target.getAttribute('aria-haspopup') != null || target.getAttribute('data-slot') === 'dropdown-menu-trigger')
+                            ? target
+                            : target.closest('button, a, [role="button"], [aria-haspopup], [data-slot="dropdown-menu-trigger"]');
+                        if (!interactiveEl) return;
+
+                        const identifier = extractElementIdentifier(interactiveEl);
+
+                        // Mark this pointerdown so the subsequent click listener can skip it
+                        lastPointerdownTarget = interactiveEl;
+                        lastPointerdownTime = Date.now();
+
+                        queueEvent({
+                            type: 'click',
+                            ...identifier
+                        });
+                    }, true);
+
                     // Listen for MOUSE CLICKS
                     document.addEventListener('click', (e) => {
                         // Avoid triggering on purely layout clicks if it's not a button/link/input/etc
@@ -357,6 +439,16 @@ export async function startStepRecorder(initialUrl?: string) {
                         
                         // Ignore pure document/body clicks unless we want them
                         if (target === document.body || target === document.documentElement) return;
+
+                        // Deduplicate: if a pointerdown already recorded this interaction
+                        // within the last 500ms on the same element (or an ancestor), skip.
+                        if (lastPointerdownTarget && (Date.now() - lastPointerdownTime) < 500) {
+                            if (target === lastPointerdownTarget || lastPointerdownTarget.contains(target) || target.contains(lastPointerdownTarget)) {
+                                lastPointerdownTarget = null;
+                                return;
+                            }
+                        }
+                        lastPointerdownTarget = null;
 
                         queueEvent({
                             type: 'click',

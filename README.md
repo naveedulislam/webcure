@@ -364,6 +364,8 @@ These commands exist only in the file bridge and are implemented directly agains
 | `getDialogText`        | Get text from the current dialog                           |
 | `startRecording`       | Begin recording actions                                    |
 | `stopRecording`        | Stop recording and return generated Python script          |
+| `startStepRecorder`    | Start automatic step recording (optionally with `url`)     |
+| `stopStepRecorder`     | Stop step recording and generate Markdown output           |
 | `runScript`            | Execute a JSON automation script                           |
 
 ---
@@ -471,6 +473,8 @@ When recording stops, the Markdown file opens automatically in the editor previe
 | User Action            | Recorded As                                          | Screenshot                                |
 | ---------------------- | ---------------------------------------------------- | ----------------------------------------- |
 | Click a link or button | `Clicked on button 'Login'`                          | Taken after the page reacts to the click  |
+| Click a dropdown trigger | `Clicked on button 'Options'`                      | Captured via `pointerdown` for Radix UI   |
+| Click a menu item      | `Selected 'Edit' from 'Options' dropdown`            | ARIA-aware with trigger label lookup      |
 | Type into a field      | `Typed 'admin' into 'Username'`                      | Taken immediately (shows the typed value) |
 | Type a password        | `Typed '********' into 'Password'`                   | Password value is masked                  |
 | Press Enter            | `Pressed 'Enter' on 'Search'`                        | Taken after the page reacts               |
@@ -510,9 +514,27 @@ The step recorder uses multiple heuristics to produce human-readable element nam
 - **Previous sibling text** — `<span>`, `<label>`, `<b>` elements before the input
 - **Button value/text** — for `<button>` and `<input type="submit">`, the button's own text takes priority
 - **ARIA attributes** — `aria-label`, `title`, `placeholder`
+- **ARIA roles** — `role="menuitem"`, `role="option"`, etc. with parent menu trigger lookup via `aria-labelledby`
 - **Element ID or name** — as a fallback
 
 Each step also records CSS selector and XPath in HTML comments for reference.
+
+### Radix UI / Portal-Based Component Support
+
+The step recorder handles modern component libraries (Radix UI, shadcn/ui, etc.) that use `pointerdown` events and portal-rendered menus:
+
+- **Dropdown triggers:** Captured via a `pointerdown` listener that fires before the menu portal intercepts the click. Deduplication prevents double-recording when both `pointerdown` and `click` fire on the same element.
+- **Menu items:** Elements with `role="menuitem"` (or `data-slot="dropdown-menu-item"`) are detected and the recorder walks up the DOM to find the parent `[role="menu"]` container, then resolves the trigger label via `aria-labelledby`.
+
+### CLI Access
+
+The step recorder can also be started and stopped via the CLI, enabling AI agents to trigger recordings programmatically:
+
+```bash
+node .webcure/cli.js startStepRecorder url=https://example.com
+# ... interact with the browser ...
+node .webcure/cli.js stopStepRecorder
+```
 
 ### Automatic Stop on Browser Close
 
@@ -749,7 +771,8 @@ webcure/
 │   ├── project_status_01.md  # Initial release status report
 │   ├── project_status_02.md  # Recording fix & Python package
 │   ├── project_status_03.md  # Action persistence & interact tool fixes
-│   └── project_status_04.md  # Step recorder feature
+│   ├── project_status_04.md  # Step recorder feature
+│   └── project_status_05.md  # Radix UI fixes & CLI step recorder
 ├── out/                      # Compiled JavaScript (tsc output)
 ├── dist/                     # Packaged .vsix file
 ├── package.json              # Extension manifest + tool/command declarations

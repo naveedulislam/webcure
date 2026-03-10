@@ -76,6 +76,8 @@ const HELP = [
     '  dragTo          source=<text|selector> target=<text|selector>',
     '  startRecording',
     '  stopRecording',
+    '  startStepRecorder [url=<URL>]   (Record Steps - Automatic)',
+    '  stopStepRecorder                (Stop step recording)',
     '  runScript       file=<path_to_json>',
     '  getPageInfo',
     '  getPageContent',

@@ -23,6 +23,7 @@ import { BrowserManager } from '../browserManager';
 // Recorder
 import { startRecording, stopRecording, recordAction } from '../recorder/action-log';
 import { generatePythonScript } from '../recorder/script-generator';
+import { startStepRecorder, stopStepRecorder } from '../recorder/step-recorder';
 
 // ---------------------------------------------------------------------------
 // Tool instances -- set by extension.ts after tool registration
@@ -426,6 +427,17 @@ export async function executeCommand(
                 const actions = stopRecording();
                 const script = actions.length > 0 ? generatePythonScript(actions) : null;
                 return ok(command, { actionCount: actions.length, script });
+            }
+
+            case 'startStepRecorder': {
+                const url = args.url as string | undefined;
+                await startStepRecorder(url);
+                return ok(command, { recording: true, url: url || null });
+            }
+
+            case 'stopStepRecorder': {
+                await stopStepRecorder();
+                return ok(command, { recording: false });
             }
 
             case 'runScript': {
