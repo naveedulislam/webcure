@@ -3,11 +3,13 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { BrowserManager } from '../browserManager';
 import { Page } from 'playwright-core';
+import { getEngineScript } from './element-rules-engine';
 
 declare global {
     interface Window {
         recordStep?: (eventData: any) => void;
         __webcureStepRecorderAttached?: boolean;
+        __webcure?: any;
     }
 }
 
@@ -59,50 +61,22 @@ Recorded automatically starting at: ${new Date().toLocaleString()}
 
 /**
  * Extracts a concise English action description.
+ *
+ * If the event comes from the browser-injected rules engine it will already
+ * contain a `description` field produced by `window.__webcure.describeAction`.
+ * Node-side-only events (navigate, close) are still formatted here.
  */
 function formatActionDescription(eventData: any): string {
-    const { type, tagName, text, placeholder, ariaLabel, value, key, title, name, id, labelText, buttonText, inputType, role, menuTriggerLabel } = eventData || {};
+    // The rules engine already produced a description in the browser
+    if (eventData.description) return eventData.description;
 
-    // Determine the best name for the element
-    // For buttons, prefer buttonText (the button's own value/label) over labelText (nearby label heuristic)
-    const isButtonElement = (tagName && tagName.toLowerCase() === 'button') || 
-        (tagName && tagName.toLowerCase() === 'input' && ['submit', 'button', 'reset'].includes((inputType || '').toLowerCase()));
-    const elementName = isButtonElement
-        ? (buttonText || text || ariaLabel || labelText || title || placeholder || name || id || (tagName ? tagName.toLowerCase() : 'element'))
-        : (labelText || buttonText || text || ariaLabel || title || placeholder || name || id || (tagName ? tagName.toLowerCase() : 'element'));
-    let safeName = String(elementName).replace(/\s+/g, ' ').trim().substring(0, 50);
+    // Fallback for Node-only events (navigate, close, etc.)
+    const { type, tagName, text, key } = eventData || {};
+    const safeName = String(text || tagName || 'element').replace(/\s+/g, ' ').trim().substring(0, 50);
 
-    // Remove trailing colons often found in heuristic label lookups (e.g. "Username:")
-    safeName = safeName.replace(/:$/, '').trim();
-
-    const lowerTag = tagName ? tagName.toLowerCase() : '';
-    const isButton = lowerTag === 'button' || (lowerTag === 'input' && ['submit', 'button', 'reset'].includes((inputType || '').toLowerCase()));
-    const isInput = lowerTag === 'input' || lowerTag === 'textarea';
-
-    // ARIA-aware descriptions for menu items, options, etc.
-    const lowerRole = role ? role.toLowerCase() : '';
-    if (type === 'click' && ['menuitem', 'menuitemcheckbox', 'menuitemradio', 'option'].includes(lowerRole)) {
-        const itemLabel = text || ariaLabel || safeName;
-        const safeItemLabel = String(itemLabel).replace(/\s+/g, ' ').trim().substring(0, 50);
-        if (menuTriggerLabel) {
-            return `Selected '${safeItemLabel}' from '${menuTriggerLabel}' dropdown`;
-        }
-        return `Selected menu item '${safeItemLabel}'`;
-    }
-
-    const tagDesc = isButton ? 'button' : isInput ? 'input' : lowerTag;
-
-    if (type === 'click') {
-        return `Clicked on ${tagDesc} '${safeName}'`;
-    } else if (type === 'type') {
-        const obscuredValue = lowerTag === 'input' && inputType === 'password'
-            ? '********'
-            : value;
-        return `Typed '${obscuredValue}' into '${safeName}'`;
-    } else if (type === 'keydown' && key === 'Enter') {
-        return `Pressed 'Enter' on '${safeName}'`;
-    }
-
+    if (type === 'navigate') return `Navigated to ${safeName}`;
+    if (type === 'close')    return `Browser window closed`;
+    if (type === 'keydown' && key) return `Pressed ${key} on '${safeName}'`;
     return `Performed '${type}' on '${safeName}'`;
 }
 
@@ -163,9 +137,13 @@ async function handleBrowserStep(eventData: any) {
 **Action:** ${actionText}
 <!-- Details: 
   tagName: ${eventData.tagName || ''}
+  role: ${eventData.role || ''}
+  category: ${eventData.category || ''}
   id: ${eventData.id || ''}
   cssSelector: ${eventData.cssSelector || ''}
   xpath: ${eventData.xpath || ''}
+  locators: ${JSON.stringify(eventData.locators || [])}
+  context: ${JSON.stringify(eventData.context || {})}
 -->
 
 ${screenshotMarkdown}
@@ -210,186 +188,35 @@ export async function startStepRecorder(initialUrl?: string) {
             // Expose the Node.js handler to the browser window context
             await page.exposeFunction('recordStep', handleBrowserStep);
 
-            // Inject tracking script that attaches to all future navigations in this context
+            // Inject the HTML Element Rules Engine (standards-based element
+            // classification, locator generation, label extraction)
+            await page.addInitScript(getEngineScript());
+
+            // Inject the event-wiring script that uses the engine
             await page.addInitScript(`
                 (() => {
                     if (window.__webcureStepRecorderAttached) return;
                     window.__webcureStepRecorderAttached = true;
 
-                    function getCssSelector(el) {
-                        if (!el || el.nodeType !== 1) return '';
-                        if (el.id) return '#' + CSS.escape(el.id);
-                        let path = [];
-                        while (el && el.nodeType === 1 && el.nodeName.toLowerCase() !== 'html') {
-                            let selector = el.nodeName.toLowerCase();
-                            if (el.id) {
-                                selector += '#' + CSS.escape(el.id);
-                                path.unshift(selector);
-                                break;
-                            } else {
-                                let sib = el, nth = 1;
-                                while (sib = sib.previousElementSibling) {
-                                    if (sib.nodeName.toLowerCase() === selector) nth++;
-                                }
-                                if (nth !== 1) selector += ":nth-of-type(" + nth + ")";
-                            }
-                            path.unshift(selector);
-                            el = el.parentNode;
-                        }
-                        return path.join(' > ');
-                    }
-
-                    function getXPath(el) {
-                        if (!el || el.nodeType !== 1) return '';
-                        if (el.id) return '//*[@id="' + el.id + '"]';
-                        let parts = [];
-                        while (el && el.nodeType === 1) {
-                            let nbOfPreviousSiblings = 0;
-                            let hasNextSiblings = false;
-                            let sibling = el.previousSibling;
-                            while (sibling) {
-                                if (sibling.nodeType !== Node.DOCUMENT_TYPE_NODE && sibling.nodeName === el.nodeName) {
-                                    nbOfPreviousSiblings++;
-                                }
-                                sibling = sibling.previousSibling;
-                            }
-                            sibling = el.nextSibling;
-                            while (sibling) {
-                                if (sibling.nodeName === el.nodeName) {
-                                    hasNextSiblings = true;
-                                    break;
-                                }
-                                sibling = sibling.nextSibling;
-                            }
-                            let prefix = el.prefix ? el.prefix + ':' : '';
-                            let nth = nbOfPreviousSiblings || hasNextSiblings ? '[' + (nbOfPreviousSiblings + 1) + ']' : '';
-                            parts.push(prefix + el.localName + nth);
-                            el = el.parentNode;
-                        }
-                        return parts.length ? '//' + parts.reverse().join('/') : '';
-                    }
-
-                    function extractElementIdentifier(el) {
-                        let labelText = '';
-                        if (el.id) {
-                            try {
-                                const label = document.querySelector('label[for="' + CSS.escape(el.id) + '"]');
-                                if (label) labelText = label.innerText ? label.innerText.trim() : '';
-                            } catch (e) {}
-                        }
-                        if (!labelText) {
-                            const parentLabel = el.closest('label');
-                            if (parentLabel && parentLabel.innerText) {
-                                labelText = parentLabel.innerText.trim();
-                            }
-                        }
-                        // Only apply table cell and previous sibling heuristics for input/textarea/select elements
-                        const isInputNode = ['input', 'textarea', 'select'].includes(el.tagName ? el.tagName.toLowerCase() : '');
-                        
-                        // Heuristic: lookup previous table cell for text!
-                        if (!labelText && isInputNode) {
-                            const td = el.closest('td');
-                            if (td) {
-                                let prev = td.previousElementSibling;
-                                while (prev && prev.tagName.toLowerCase() === 'td') {
-                                    if (prev.innerText && prev.innerText.trim()) {
-                                        labelText = prev.innerText.trim();
-                                        break;
-                                    }
-                                    prev = prev.previousElementSibling;
-                                }
-                            }
-                        }
-                        // Heuristic: previous sibling text element
-                        if (!labelText && isInputNode && el.previousElementSibling) {
-                            const tag = el.previousElementSibling.tagName.toLowerCase();
-                            if (['span', 'label', 'div', 'p', 'b', 'strong'].includes(tag)) {
-                                const txt = el.previousElementSibling.innerText ? el.previousElementSibling.innerText.trim() : '';
-                                if (txt && txt.length < 50) labelText = txt;
-                            }
-                        }
-                        // Heuristic: previous raw text node
-                        if (!labelText && isInputNode && el.previousSibling && el.previousSibling.nodeType === Node.TEXT_NODE) {
-                            const txt = el.previousSibling.textContent.trim();
-                            if (txt && txt.length < 50) labelText = txt;
-                        }
-
-                        let buttonText = '';
-                        const tagNameLower = el.tagName ? el.tagName.toLowerCase() : '';
-                        const inputType = el.getAttribute('type') || '';
-                        
-                        if (tagNameLower === 'input' && ['submit', 'button', 'reset'].includes(inputType.toLowerCase())) {
-                            buttonText = el.value || '';
-                        }
-
-                        // ARIA role awareness: detect menu items, options, etc.
-                        const role = el.getAttribute('role') || '';
-                        const dataSlot = el.getAttribute('data-slot') || '';
-                        let menuTriggerLabel = '';
-                        if (['menuitem', 'menuitemcheckbox', 'menuitemradio', 'option'].includes(role) ||
-                            ['dropdown-menu-item', 'select-item'].includes(dataSlot)) {
-                            // Walk up to find the parent menu/listbox container
-                            const menuContainer = el.closest('[role="menu"], [role="listbox"], [role="menubar"]');
-                            if (menuContainer) {
-                                // Try aria-labelledby on the menu container to find the trigger
-                                const labelledById = menuContainer.getAttribute('aria-labelledby');
-                                if (labelledById) {
-                                    try {
-                                        const triggerEl = document.getElementById(labelledById);
-                                        if (triggerEl && triggerEl.innerText) {
-                                            menuTriggerLabel = triggerEl.innerText.trim();
-                                        }
-                                    } catch (e) {}
-                                }
-                                // Fallback: try aria-label on the menu container
-                                if (!menuTriggerLabel) {
-                                    const menuAriaLabel = menuContainer.getAttribute('aria-label');
-                                    if (menuAriaLabel) menuTriggerLabel = menuAriaLabel.trim();
-                                }
-                            }
-                        }
-
-                        return {
-                            tagName: el.tagName || '',
-                            text: el.innerText ? el.innerText.trim() : '',
-                            placeholder: el.getAttribute('placeholder') || '',
-                            ariaLabel: el.getAttribute('aria-label') || '',
-                            title: el.getAttribute('title') || '',
-                            name: el.getAttribute('name') || '',
-                            id: el.getAttribute('id') || '',
-                            inputType: inputType,
-                            labelText: labelText,
-                            buttonText: buttonText,
-                            role: role,
-                            menuTriggerLabel: menuTriggerLabel,
-                            cssSelector: getCssSelector(el),
-                            xpath: getXPath(el)
-                        };
-                    }
+                    const engine = window.__webcure;
 
                     // Event buffer for ordering 'type' before 'keydown(Enter)'
                     let eventBuffer = [];
                     let flushTimeout = null;
 
                     // --- Deferred Pointerdown State ---
-                    // Instead of whitelisting specific interactive elements, we use a
-                    // "deferred pointerdown" strategy: capture EVERY pointerdown on a
-                    // meaningful target, then wait a short window. If a matching 'click'
-                    // fires within that window the pointerdown is discarded (click handles
-                    // it). If NO click fires (the DOM element was removed between
-                    // pointerdown and mouseup, e.g. Radix Select/DropdownMenu) the
-                    // pointerdown is recorded as a click. This approach is robust against
-                    // any component library without needing selector whitelists.
-                    let pendingPointerdown = null;      // { el, identifier, timerId }
+                    // Capture EVERY pointerdown on a meaningful target, then wait a
+                    // short window. If a matching 'click' fires the pointerdown is
+                    // discarded. If NO click fires (DOM element removed, e.g. Radix
+                    // Select) the pointerdown is recorded as a click.
+                    let pendingPointerdown = null;      // { el, data, timerId }
 
                     function flushEvents() {
-                        // Sort so that 'type' events come before 'keydown' events for the same tick
                         eventBuffer.sort((a, b) => {
                             if (a.type === 'type' && b.type === 'keydown') return -1;
                             if (a.type === 'keydown' && b.type === 'type') return 1;
                             return 0;
                         });
-
                         eventBuffer.forEach(ev => window.recordStep(ev));
                         eventBuffer = [];
                         flushTimeout = null;
@@ -403,125 +230,80 @@ export async function startStepRecorder(initialUrl?: string) {
                     }
 
                     /**
-                     * Walk up from the raw event target to the nearest semantically
-                     * meaningful ancestor. Covers buttons, links, ARIA roles (option,
-                     * menuitem, combobox, tab, treeitem, etc.) and Radix data-slot
-                     * attributes. Returns the target itself if no ancestor matches.
+                     * Use the rules engine to inspect an element and build a full
+                     * event payload including description, locators, and context.
                      */
-                    const INTERACTIVE_SELECTOR = [
-                        'button', 'a', 'input', 'select', 'textarea',
-                        '[role="button"]', '[role="option"]', '[role="menuitem"]',
-                        '[role="menuitemcheckbox"]', '[role="menuitemradio"]',
-                        '[role="tab"]', '[role="treeitem"]', '[role="combobox"]',
-                        '[role="switch"]', '[role="link"]', '[role="checkbox"]',
-                        '[role="radio"]', '[aria-haspopup]',
-                        '[data-slot="dropdown-menu-trigger"]',
-                        '[data-slot="dropdown-menu-item"]',
-                        '[data-slot="select-trigger"]',
-                        '[data-slot="select-item"]'
-                    ].join(', ');
-
-                    function resolveInteractiveElement(target) {
-                        if (!target || target === document.body || target === document.documentElement) return null;
-                        // If the target itself matches, use it
-                        if (target.matches && target.matches(INTERACTIVE_SELECTOR)) return target;
-                        // Walk up to closest matching ancestor
-                        const ancestor = target.closest ? target.closest(INTERACTIVE_SELECTOR) : null;
-                        return ancestor || target; // Fall back to target itself
+                    function buildEventData(el, eventType, extras) {
+                        const info = engine.inspectElement(el, eventType, extras);
+                        if (!info) return null;
+                        return { type: eventType, ...info, ...(extras || {}) };
                     }
 
-                    // Listen for POINTERDOWN -- deferred recording approach.
-                    // Captures the element info immediately (before the DOM might be
-                    // mutated) then waits to see if a 'click' event follows.
+                    // POINTERDOWN — deferred recording approach
                     document.addEventListener('pointerdown', (e) => {
                         const target = e.target;
                         if (!target || target === document.body || target === document.documentElement) return;
 
-                        // Cancel any still-pending pointerdown from a previous interaction
                         if (pendingPointerdown) {
                             clearTimeout(pendingPointerdown.timerId);
-                            // Commit the orphaned pointerdown before starting a new one
-                            queueEvent({ type: 'click', ...pendingPointerdown.identifier });
+                            queueEvent(pendingPointerdown.data);
                             pendingPointerdown = null;
                         }
 
-                        const el = resolveInteractiveElement(target);
+                        const el = engine.resolveInteractiveElement(target);
                         if (!el) return;
-                        const identifier = extractElementIdentifier(el);
+                        const data = buildEventData(el, 'click');
+                        if (!data) return;
 
-                        // Set a deferred timer: if no 'click' confirms this within
-                        // 400ms, record it as a click (element was removed from DOM).
                         const timerId = setTimeout(() => {
                             if (pendingPointerdown) {
-                                queueEvent({ type: 'click', ...pendingPointerdown.identifier });
+                                queueEvent(pendingPointerdown.data);
                                 pendingPointerdown = null;
                             }
                         }, 400);
 
-                        pendingPointerdown = { el, identifier, timerId };
+                        pendingPointerdown = { el, data, timerId };
                     }, true);
 
-                    // Listen for MOUSE CLICKS
+                    // CLICK
                     document.addEventListener('click', (e) => {
                         const target = e.target;
-                        // Ignore pure document/body clicks unless we want them
-                        if (target === document.body || target === document.documentElement) {
-                            // Body click usually means the real target was removed.
-                            // The deferred pointerdown timer will handle it — just bail.
-                            return;
-                        }
+                        if (target === document.body || target === document.documentElement) return;
 
-                        // If there's a pending pointerdown that matches this click,
-                        // cancel the deferred timer and let the click handler record it
-                        // (click has better timing — the element is still in the DOM).
                         if (pendingPointerdown) {
                             const pd = pendingPointerdown;
                             if (target === pd.el || (pd.el.contains && pd.el.contains(target)) || (target.contains && target.contains(pd.el))) {
                                 clearTimeout(pd.timerId);
                                 pendingPointerdown = null;
-                                // Record via the click path with the already-extracted identifier
-                                queueEvent({ type: 'click', ...pd.identifier });
+                                queueEvent(pd.data);
                                 return;
                             }
-                            // Click on a different element — commit the orphaned pointerdown
                             clearTimeout(pd.timerId);
-                            queueEvent({ type: 'click', ...pd.identifier });
+                            queueEvent(pd.data);
                             pendingPointerdown = null;
                         }
 
-                        const el = resolveInteractiveElement(target);
+                        const el = engine.resolveInteractiveElement(target);
                         if (!el) return;
-                        const identifier = extractElementIdentifier(el);
-
-                        queueEvent({
-                            type: 'click',
-                            ...identifier
-                        });
+                        const data = buildEventData(el, 'click');
+                        if (data) queueEvent(data);
                     }, true);
 
-                    // Listen for TYPING / INPUT CHANGES
+                    // CHANGE (typing / input)
                     document.addEventListener('change', (e) => {
                         const target = e.target;
-                        const identifier = extractElementIdentifier(target);
-                        
-                        queueEvent({
-                            type: 'type',
-                            value: target.value,
-                            ...identifier
-                        });
+                        const el = engine.resolveInteractiveElement(target) || target;
+                        const data = buildEventData(el, 'type', { value: target.value });
+                        if (data) queueEvent(data);
                     }, true);
 
-                    // Listen for specific KEYS (like Enter)
+                    // KEYDOWN (Enter)
                     document.addEventListener('keydown', (e) => {
                         if (e.key === 'Enter') {
                             const target = e.target;
-                            const identifier = extractElementIdentifier(target);
-                            
-                            queueEvent({
-                                type: 'keydown',
-                                key: 'Enter',
-                                ...identifier
-                            });
+                            const el = engine.resolveInteractiveElement(target) || target;
+                            const data = buildEventData(el, 'keydown', { key: 'Enter' });
+                            if (data) queueEvent(data);
                         }
                     }, true);
                 })();

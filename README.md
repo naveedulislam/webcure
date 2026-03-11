@@ -768,8 +768,12 @@ webcure/
 ├── tests/
 │   ├── MANUAL-TEST-RESULTS.md  # Manual test documentation
 │   ├── bridge-integration-tests.sh  # Automated bridge integration tests
-│   └── unit/
-│       └── tools.test.ts     # Unit tests (bridge routing, recording, params)
+│   ├── unit/
+│   │   ├── tools.test.ts     # Unit tests (bridge routing, recording, params)
+│   │   └── element-rules-engine.test.ts  # 113 unit tests for the rules engine
+│   └── integration/
+│       ├── live_engine_test.py  # 63 Python live browser tests against real sites
+│       └── screenshots/         # Test screenshots captured during live tests
 ├── status/
 │   ├── project_status_01.md  # Initial release status report
 │   ├── project_status_02.md  # Recording fix & Python package
@@ -785,11 +789,33 @@ webcure/
 
 ### Testing
 
+#### Test Dependencies
+
 ```bash
-# Run unit tests (bridge routing + parameter transformation)
+# TypeScript unit tests (playwright-core + tsx)
+npm install                    # installs playwright-core, tsx, typescript from package.json
+
+# Python live browser integration tests
+pip install playwright         # Python Playwright bindings (v1.58+)
+
+# Browser binaries (shared by both TS and Python tests)
+npx playwright install chromium
+```
+
+#### Running Tests
+
+```bash
+# TypeScript unit tests — 113 tests for the Element Rules Engine
+npx tsx tests/unit/element-rules-engine.test.ts
+
+# Bridge routing + parameter transformation unit tests
 npm run test:unit
 
-# Run automated bridge integration tests (requires VS Code + extension active)
+# Python live browser integration tests — 63 tests against real websites
+# (demo.testfire.net, the-internet.herokuapp.com, Radix UI Themes Playground, W3C WAI-ARIA)
+python3 tests/integration/live_engine_test.py
+
+# Automated bridge integration tests (requires VS Code + extension active)
 bash tests/bridge-integration-tests.sh
 ```
 
