@@ -440,6 +440,13 @@ export async function executeCommand(
                 return ok(command, { recording: false });
             }
 
+            case 'restartExtensionHost': {
+                // Restart the VS Code extension host so newly installed VSIX
+                // changes take effect without a full window reload.
+                await vscode.commands.executeCommand('workbench.action.restartExtensionHost');
+                return ok(command, { restarted: true });
+            }
+
             case 'runScript': {
                 const filePath = args.file as string;
                 if (!filePath) {

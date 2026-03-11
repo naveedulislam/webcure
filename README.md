@@ -120,14 +120,14 @@ This runs `tsc` and outputs JavaScript to the `out/` directory.
 npm run package
 ```
 
-This produces `dist/webcure.vsix`. The file is the installable extension.
+This produces `webcure-<version>.vsix` (e.g. `webcure-1.0.0.vsix`) in the project root. The version comes from `package.json`.
 
 ### Step 5: Install in your editor
 
 **VS Code (command line):**
 
 ```bash
-code --install-extension dist/webcure.vsix
+code --install-extension webcure-1.0.0.vsix
 ```
 
 **VS Code (graphical):**
@@ -135,14 +135,14 @@ code --install-extension dist/webcure.vsix
 1. Open VS Code
 2. Press `Cmd+Shift+P` (macOS) or `Ctrl+Shift+P` (Windows/Linux)
 3. Type **Extensions: Install from VSIX...**
-4. Navigate to `~/Developer/webcure/dist/`
-5. Select `webcure.vsix`
+4. Navigate to `~/Developer/webcure/`
+5. Select `webcure-1.0.0.vsix`
 6. Restart VS Code when prompted
 
 **Cursor (command line):**
 
 ```bash
-cursor --install-extension dist/webcure.vsix
+cursor --install-extension webcure-1.0.0.vsix
 ```
 
 **Cursor (graphical):**
@@ -150,7 +150,7 @@ cursor --install-extension dist/webcure.vsix
 1. Open Cursor
 2. Press `Cmd+Shift+P`
 3. Type **Extensions: Install from VSIX...**
-4. Select `webcure.vsix`
+4. Select `webcure-1.0.0.vsix`
 5. Restart Cursor
 
 ### Step 6: Verify the installation
@@ -366,6 +366,7 @@ These commands exist only in the file bridge and are implemented directly agains
 | `stopRecording`        | Stop recording and return generated Python script          |
 | `startStepRecorder`    | Start automatic step recording (optionally with `url`)     |
 | `stopStepRecorder`     | Stop step recording and generate Markdown output           |
+| `restartExtensionHost` | Restart VS Code extension host (useful after VSIX install) |
 | `runScript`            | Execute a JSON automation script                           |
 
 ---
@@ -473,8 +474,9 @@ When recording stops, the Markdown file opens automatically in the editor previe
 | User Action              | Recorded As                                          | Screenshot                                |
 | ------------------------ | ---------------------------------------------------- | ----------------------------------------- |
 | Click a link or button   | `Clicked on button 'Login'`                          | Taken after the page reacts to the click  |
-| Click a dropdown trigger | `Clicked on button 'Options'`                        | Captured via `pointerdown` for Radix UI   |
+| Click a dropdown trigger | `Clicked on button 'Options'`                        | Captured via deferred `pointerdown`       |
 | Click a menu item        | `Selected 'Edit' from 'Options' dropdown`            | ARIA-aware with trigger label lookup      |
+| Select a dropdown option | `Selected menu item 'Orange'`                        | Deferred pointerdown for Radix Select     |
 | Type into a field        | `Typed 'admin' into 'Username'`                      | Taken immediately (shows the typed value) |
 | Type a password          | `Typed '********' into 'Password'`                   | Password value is masked                  |
 | Press Enter              | `Pressed 'Enter' on 'Search'`                        | Taken after the page reacts               |
@@ -523,8 +525,9 @@ Each step also records CSS selector and XPath in HTML comments for reference.
 
 The step recorder handles modern component libraries (Radix UI, shadcn/ui, etc.) that use `pointerdown` events and portal-rendered menus:
 
-- **Dropdown triggers:** Captured via a `pointerdown` listener that fires before the menu portal intercepts the click. Deduplication prevents double-recording when both `pointerdown` and `click` fire on the same element.
-- **Menu items:** Elements with `role="menuitem"` (or `data-slot="dropdown-menu-item"`) are detected and the recorder walks up the DOM to find the parent `[role="menu"]` container, then resolves the trigger label via `aria-labelledby`.
+- **Dropdown triggers:** Captured via a "deferred pointerdown" strategy — the recorder captures every `pointerdown` on interactive elements, waits 400ms, and records it as a click only if no matching `click` event follows. This handles Radix UI DropdownMenu triggers that open a portal on `pointerdown`, causing the `click` to land on `document.body`.
+- **Select options:** Radix UI Select options (`role="option"`) are removed from the DOM between `pointerdown` and `mouseup`, so the `click` event never fires on the option. The deferred pointerdown timer catches these and records the selection.
+- **Menu items:** Elements with `role="menuitem"` (or `data-slot="dropdown-menu-item"` / `data-slot="select-item"`) are detected and the recorder walks up the DOM to find the parent `[role="menu"]` or `[role="listbox"]` container, then resolves the trigger label via `aria-labelledby`.
 
 ### CLI Access
 
@@ -772,9 +775,9 @@ webcure/
 │   ├── project_status_02.md  # Recording fix & Python package
 │   ├── project_status_03.md  # Action persistence & interact tool fixes
 │   ├── project_status_04.md  # Step recorder feature
-│   └── project_status_05.md  # Radix UI fixes & CLI step recorder
+│   ├── project_status_05.md  # Radix UI fixes & CLI step recorder
+│   └── project_status_06.md  # Deferred pointerdown & Select support
 ├── out/                      # Compiled JavaScript (tsc output)
-├── dist/                     # Packaged .vsix file
 ├── package.json              # Extension manifest + tool/command declarations
 ├── tsconfig.json             # TypeScript configuration
 └── README.md
@@ -821,4 +824,4 @@ bash tests/bridge-integration-tests.sh
 ### .vsix build fails
 
 - Run `npm install` first to ensure all dependencies are installed
-- If `vsce` is not found: `npx @vscode/vsce package -o dist/webcure.vsix`
+- If `vsce` is not found: `npx @vscode/vsce package`

@@ -40,6 +40,17 @@ class BrowserManagerImpl {
 	private elementRefs = new Map<string, ElementHandle>();
 	private refCounter = 0;
 
+	/**
+	 * Returns the existing page if it's open, or undefined.
+	 * Does NOT create a new browser/page.
+	 */
+	getExistingPage(): Page | undefined {
+		if (this.page && !this.page.isClosed()) {
+			return this.page;
+		}
+		return undefined;
+	}
+
 	async getPage(): Promise<Page> {
 		if (this.page && !this.page.isClosed()) {
 			return this.page;

@@ -137,18 +137,20 @@ async function handleBrowserStep(eventData: any) {
             let screenshotTaken = false;
 
             if (!isBrowserClose) {
-                const page = await BrowserManager.getPage();
-
-                // For 'type' events the value is already visible in the field when the
-                // change event fires, so capture immediately. For clicks and other
-                // actions, add a small delay to let the page react.
-                if (eventData.type !== 'type') {
-                    await new Promise(r => setTimeout(r, 200));
-                }
-                // Ensure the page hasn't been closed in the delay
-                if (!page.isClosed()) {
-                    await page.screenshot({ path: screenshotPath });
-                    screenshotTaken = true;
+                // Use getExistingPage to avoid opening a blank browser
+                const page = BrowserManager.getExistingPage();
+                if (page) {
+                    // For 'type' events the value is already visible in the field when the
+                    // change event fires, so capture immediately. For clicks and other
+                    // actions, add a small delay to let the page react.
+                    if (eventData.type !== 'type') {
+                        await new Promise(r => setTimeout(r, 200));
+                    }
+                    // Ensure the page hasn't been closed in the delay
+                    if (!page.isClosed()) {
+                        await page.screenshot({ path: screenshotPath });
+                        screenshotTaken = true;
+                    }
                 }
             }
 
@@ -322,9 +324,10 @@ export async function startStepRecorder(initialUrl?: string) {
 
                         // ARIA role awareness: detect menu items, options, etc.
                         const role = el.getAttribute('role') || '';
+                        const dataSlot = el.getAttribute('data-slot') || '';
                         let menuTriggerLabel = '';
                         if (['menuitem', 'menuitemcheckbox', 'menuitemradio', 'option'].includes(role) ||
-                            el.getAttribute('data-slot') === 'dropdown-menu-item') {
+                            ['dropdown-menu-item', 'select-item'].includes(dataSlot)) {
                             // Walk up to find the parent menu/listbox container
                             const menuContainer = el.closest('[role="menu"], [role="listbox"], [role="menubar"]');
                             if (menuContainer) {
@@ -367,9 +370,17 @@ export async function startStepRecorder(initialUrl?: string) {
                     // Event buffer for ordering 'type' before 'keydown(Enter)'
                     let eventBuffer = [];
                     let flushTimeout = null;
-                    // Track recent pointerdown-recorded elements to deduplicate with click events
-                    let lastPointerdownTarget = null;
-                    let lastPointerdownTime = 0;
+
+                    // --- Deferred Pointerdown State ---
+                    // Instead of whitelisting specific interactive elements, we use a
+                    // "deferred pointerdown" strategy: capture EVERY pointerdown on a
+                    // meaningful target, then wait a short window. If a matching 'click'
+                    // fires within that window the pointerdown is discarded (click handles
+                    // it). If NO click fires (the DOM element was removed between
+                    // pointerdown and mouseup, e.g. Radix Select/DropdownMenu) the
+                    // pointerdown is recorded as a click. This approach is robust against
+                    // any component library without needing selector whitelists.
+                    let pendingPointerdown = null;      // { el, identifier, timerId }
 
                     function flushEvents() {
                         // Sort so that 'type' events come before 'keydown' events for the same tick
@@ -391,64 +402,96 @@ export async function startStepRecorder(initialUrl?: string) {
                         }
                     }
 
-                    // Listen for POINTERDOWN -- captures clicks on elements that
-                    // intercept the event before it becomes a full 'click' (e.g. Radix UI
-                    // DropdownMenu triggers that open a portal on pointerdown, causing the
-                    // subsequent click to land on document.body).
+                    /**
+                     * Walk up from the raw event target to the nearest semantically
+                     * meaningful ancestor. Covers buttons, links, ARIA roles (option,
+                     * menuitem, combobox, tab, treeitem, etc.) and Radix data-slot
+                     * attributes. Returns the target itself if no ancestor matches.
+                     */
+                    const INTERACTIVE_SELECTOR = [
+                        'button', 'a', 'input', 'select', 'textarea',
+                        '[role="button"]', '[role="option"]', '[role="menuitem"]',
+                        '[role="menuitemcheckbox"]', '[role="menuitemradio"]',
+                        '[role="tab"]', '[role="treeitem"]', '[role="combobox"]',
+                        '[role="switch"]', '[role="link"]', '[role="checkbox"]',
+                        '[role="radio"]', '[aria-haspopup]',
+                        '[data-slot="dropdown-menu-trigger"]',
+                        '[data-slot="dropdown-menu-item"]',
+                        '[data-slot="select-trigger"]',
+                        '[data-slot="select-item"]'
+                    ].join(', ');
+
+                    function resolveInteractiveElement(target) {
+                        if (!target || target === document.body || target === document.documentElement) return null;
+                        // If the target itself matches, use it
+                        if (target.matches && target.matches(INTERACTIVE_SELECTOR)) return target;
+                        // Walk up to closest matching ancestor
+                        const ancestor = target.closest ? target.closest(INTERACTIVE_SELECTOR) : null;
+                        return ancestor || target; // Fall back to target itself
+                    }
+
+                    // Listen for POINTERDOWN -- deferred recording approach.
+                    // Captures the element info immediately (before the DOM might be
+                    // mutated) then waits to see if a 'click' event follows.
                     document.addEventListener('pointerdown', (e) => {
                         const target = e.target;
                         if (!target || target === document.body || target === document.documentElement) return;
 
-                        // Only record pointerdown for interactive elements likely to
-                        // swallow the click: buttons, links, and elements with aria-haspopup.
-                        const tag = target.tagName ? target.tagName.toLowerCase() : '';
-                        const isInteractive = (
-                            tag === 'button' ||
-                            tag === 'a' ||
-                            target.getAttribute('role') === 'button' ||
-                            target.getAttribute('aria-haspopup') != null ||
-                            target.getAttribute('data-slot') === 'dropdown-menu-trigger' ||
-                            target.closest('button, a, [role="button"], [aria-haspopup], [data-slot="dropdown-menu-trigger"]')
-                        );
-                        if (!isInteractive) return;
+                        // Cancel any still-pending pointerdown from a previous interaction
+                        if (pendingPointerdown) {
+                            clearTimeout(pendingPointerdown.timerId);
+                            // Commit the orphaned pointerdown before starting a new one
+                            queueEvent({ type: 'click', ...pendingPointerdown.identifier });
+                            pendingPointerdown = null;
+                        }
 
-                        // Resolve to the nearest interactive ancestor if needed
-                        const interactiveEl = (tag === 'button' || tag === 'a' || target.getAttribute('role') === 'button' || target.getAttribute('aria-haspopup') != null || target.getAttribute('data-slot') === 'dropdown-menu-trigger')
-                            ? target
-                            : target.closest('button, a, [role="button"], [aria-haspopup], [data-slot="dropdown-menu-trigger"]');
-                        if (!interactiveEl) return;
+                        const el = resolveInteractiveElement(target);
+                        if (!el) return;
+                        const identifier = extractElementIdentifier(el);
 
-                        const identifier = extractElementIdentifier(interactiveEl);
+                        // Set a deferred timer: if no 'click' confirms this within
+                        // 400ms, record it as a click (element was removed from DOM).
+                        const timerId = setTimeout(() => {
+                            if (pendingPointerdown) {
+                                queueEvent({ type: 'click', ...pendingPointerdown.identifier });
+                                pendingPointerdown = null;
+                            }
+                        }, 400);
 
-                        // Mark this pointerdown so the subsequent click listener can skip it
-                        lastPointerdownTarget = interactiveEl;
-                        lastPointerdownTime = Date.now();
-
-                        queueEvent({
-                            type: 'click',
-                            ...identifier
-                        });
+                        pendingPointerdown = { el, identifier, timerId };
                     }, true);
 
                     // Listen for MOUSE CLICKS
                     document.addEventListener('click', (e) => {
-                        // Avoid triggering on purely layout clicks if it's not a button/link/input/etc
-                        // But for simplicity, we capture all clicks that reach an interactive element or have text
                         const target = e.target;
-                        const identifier = extractElementIdentifier(target);
-                        
                         // Ignore pure document/body clicks unless we want them
-                        if (target === document.body || target === document.documentElement) return;
+                        if (target === document.body || target === document.documentElement) {
+                            // Body click usually means the real target was removed.
+                            // The deferred pointerdown timer will handle it — just bail.
+                            return;
+                        }
 
-                        // Deduplicate: if a pointerdown already recorded this interaction
-                        // within the last 500ms on the same element (or an ancestor), skip.
-                        if (lastPointerdownTarget && (Date.now() - lastPointerdownTime) < 500) {
-                            if (target === lastPointerdownTarget || lastPointerdownTarget.contains(target) || target.contains(lastPointerdownTarget)) {
-                                lastPointerdownTarget = null;
+                        // If there's a pending pointerdown that matches this click,
+                        // cancel the deferred timer and let the click handler record it
+                        // (click has better timing — the element is still in the DOM).
+                        if (pendingPointerdown) {
+                            const pd = pendingPointerdown;
+                            if (target === pd.el || (pd.el.contains && pd.el.contains(target)) || (target.contains && target.contains(pd.el))) {
+                                clearTimeout(pd.timerId);
+                                pendingPointerdown = null;
+                                // Record via the click path with the already-extracted identifier
+                                queueEvent({ type: 'click', ...pd.identifier });
                                 return;
                             }
+                            // Click on a different element — commit the orphaned pointerdown
+                            clearTimeout(pd.timerId);
+                            queueEvent({ type: 'click', ...pd.identifier });
+                            pendingPointerdown = null;
                         }
-                        lastPointerdownTarget = null;
+
+                        const el = resolveInteractiveElement(target);
+                        if (!el) return;
+                        const identifier = extractElementIdentifier(el);
 
                         queueEvent({
                             type: 'click',

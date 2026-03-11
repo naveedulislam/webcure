@@ -16,6 +16,7 @@ python/build/**
 python/webcure.egg-info/**
 __pycache__/**
 default.profraw
+*.vsix
 
 # Exclude all node_modules except playwright-core
 node_modules/**

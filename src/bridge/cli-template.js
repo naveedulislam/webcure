@@ -78,6 +78,7 @@ const HELP = [
     '  stopRecording',
     '  startStepRecorder [url=<URL>]   (Record Steps - Automatic)',
     '  stopStepRecorder                (Stop step recording)',
+    '  restartExtensionHost            (Restart extension host after VSIX install)',
     '  runScript       file=<path_to_json>',
     '  getPageInfo',
     '  getPageContent',
