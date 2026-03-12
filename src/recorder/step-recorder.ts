@@ -188,27 +188,26 @@ export async function startStepRecorder(initialUrl?: string) {
             // Expose the Node.js handler to the browser window context
             await page.exposeFunction('recordStep', handleBrowserStep);
 
-            // Inject the HTML Element Rules Engine (standards-based element
-            // classification, locator generation, label extraction)
-            await page.addInitScript(getEngineScript());
-
-            // Inject the event-wiring script that uses the engine
-            await page.addInitScript(`
+            // Build the injectable scripts as strings so we can use them
+            // both for addInitScript (future navigations) AND page.evaluate
+            // (the currently loaded page).
+            const engineScript = getEngineScript();
+            const eventWiringScript = `
                 (() => {
                     if (window.__webcureStepRecorderAttached) return;
                     window.__webcureStepRecorderAttached = true;
 
                     const engine = window.__webcure;
+                    if (!engine) {
+                        console.warn('[WebCure] Rules engine not available — event wiring skipped');
+                        return;
+                    }
 
                     // Event buffer for ordering 'type' before 'keydown(Enter)'
                     let eventBuffer = [];
                     let flushTimeout = null;
 
                     // --- Deferred Pointerdown State ---
-                    // Capture EVERY pointerdown on a meaningful target, then wait a
-                    // short window. If a matching 'click' fires the pointerdown is
-                    // discarded. If NO click fires (DOM element removed, e.g. Radix
-                    // Select) the pointerdown is recorded as a click.
                     let pendingPointerdown = null;      // { el, data, timerId }
 
                     function flushEvents() {
@@ -217,7 +216,11 @@ export async function startStepRecorder(initialUrl?: string) {
                             if (a.type === 'keydown' && b.type === 'type') return 1;
                             return 0;
                         });
-                        eventBuffer.forEach(ev => window.recordStep(ev));
+                        eventBuffer.forEach(ev => {
+                            try { window.recordStep(ev); } catch (err) {
+                                console.warn('[WebCure] recordStep failed:', err);
+                            }
+                        });
                         eventBuffer = [];
                         flushTimeout = null;
                     }
@@ -232,18 +235,34 @@ export async function startStepRecorder(initialUrl?: string) {
                     /**
                      * Use the rules engine to inspect an element and build a full
                      * event payload including description, locators, and context.
+                     *
+                     * IMPORTANT: We snapshot all data eagerly because the element
+                     * may be removed from the DOM before the deferred timer fires
+                     * (e.g. Radix Select options vanish on pointerdown).
                      */
                     function buildEventData(el, eventType, extras) {
-                        const info = engine.inspectElement(el, eventType, extras);
-                        if (!info) return null;
-                        return { type: eventType, ...info, ...(extras || {}) };
+                        try {
+                            const info = engine.inspectElement(el, eventType, extras);
+                            if (!info) return null;
+                            return { type: eventType, ...info, ...(extras || {}) };
+                        } catch (err) {
+                            console.warn('[WebCure] buildEventData error:', err);
+                            return null;
+                        }
                     }
 
                     // POINTERDOWN — deferred recording approach
+                    //
+                    // Captures ALL pointerdowns on meaningful targets, then waits
+                    // a short window:
+                    //   • If a matching click fires → cancel timer, record from click
+                    //   • If NO click fires (element removed from DOM, e.g. Radix
+                    //     Select option) → timer fires and records the pointerdown
                     document.addEventListener('pointerdown', (e) => {
                         const target = e.target;
                         if (!target || target === document.body || target === document.documentElement) return;
 
+                        // Flush any previously pending pointerdown
                         if (pendingPointerdown) {
                             clearTimeout(pendingPointerdown.timerId);
                             queueEvent(pendingPointerdown.data);
@@ -252,6 +271,8 @@ export async function startStepRecorder(initialUrl?: string) {
 
                         const el = engine.resolveInteractiveElement(target);
                         if (!el) return;
+
+                        // Snapshot data NOW while the element is still in the DOM
                         const data = buildEventData(el, 'click');
                         if (!data) return;
 
@@ -268,6 +289,10 @@ export async function startStepRecorder(initialUrl?: string) {
                     // CLICK
                     document.addEventListener('click', (e) => {
                         const target = e.target;
+
+                        // If click lands on body/documentElement, it likely means the
+                        // real target was removed (portal closed). Let the deferred
+                        // pointerdown timer handle it — do NOT flush here.
                         if (target === document.body || target === document.documentElement) return;
 
                         if (pendingPointerdown) {
@@ -307,7 +332,18 @@ export async function startStepRecorder(initialUrl?: string) {
                         }
                     }, true);
                 })();
-            `);
+            `;
+
+            // Register for future navigations (new page loads / SPA route changes)
+            await page.addInitScript(engineScript);
+            await page.addInitScript(eventWiringScript);
+
+            // CRITICAL: Also inject into the CURRENT page immediately.
+            // addInitScript only runs on future navigations — if the page is
+            // already loaded (typical workflow: user opens app, then starts
+            // recording), the scripts would never run without this.
+            await page.evaluate(engineScript);
+            await page.evaluate(eventWiringScript);
         }
 
         isRecordingSteps = true;
