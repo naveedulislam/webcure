@@ -23,7 +23,7 @@ import { BrowserManager } from '../browserManager';
 // Recorder
 import { startRecording, stopRecording, recordAction } from '../recorder/action-log';
 import { generatePythonScript } from '../recorder/script-generator';
-import { startStepRecorder, stopStepRecorder } from '../recorder/step-recorder';
+import { startStepRecorder, stopStepRecorder, RecordingMode } from '../recorder/step-recorder';
 
 // ---------------------------------------------------------------------------
 // Tool instances -- set by extension.ts after tool registration
@@ -431,8 +431,9 @@ export async function executeCommand(
 
             case 'startStepRecorder': {
                 const url = args.url as string | undefined;
-                await startStepRecorder(url);
-                return ok(command, { recording: true, url: url || null });
+                const mode = (args.mode as RecordingMode) || 'markdown';
+                await startStepRecorder(url, mode);
+                return ok(command, { recording: true, url: url || null, mode });
             }
 
             case 'stopStepRecorder': {

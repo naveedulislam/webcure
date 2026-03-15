@@ -21,7 +21,7 @@ import {
 import { startBridge, stopBridge, setBridgeToolInstances } from './bridge/file-bridge';
 import { startRecording, stopRecording, recordAction, isRecording, initRecorder } from './recorder/action-log';
 import { generatePythonScript } from './recorder/script-generator';
-import { startStepRecorder, stopStepRecorder, setStepRecorderOutputChannel } from './recorder/step-recorder';
+import { startStepRecorder, stopStepRecorder, setStepRecorderOutputChannel, RecordingMode, RecordingOptions, insertSleepStep, isStepRecording } from './recorder/step-recorder';
 
 // Output channel for test results
 let outputChannel: vscode.OutputChannel;
@@ -262,6 +262,12 @@ export async function activate(context: vscode.ExtensionContext) {
 	}));
 
 	registrations.push(vscode.commands.registerCommand('webcure.stopRecording', async () => {
+		// If the step recorder is active, stop that — it handles Python generation itself.
+		if (isStepRecording()) {
+			await stopStepRecorder();
+			return;
+		}
+
 		let actions = stopRecording();
 
 		// Fall back to persisted actions if in-memory log is empty
@@ -312,15 +318,66 @@ export async function activate(context: vscode.ExtensionContext) {
 	// ============================================
 
 	registrations.push(vscode.commands.registerCommand('webcure.startStepRecorder', async () => {
+		const modeChoice = await vscode.window.showQuickPick(
+			[
+				{ label: '$(markdown) Markdown + Screenshots', description: 'Save steps as a Markdown file with screenshots', value: 'markdown' as RecordingMode },
+				{ label: '$(code) Python Test Script', description: 'Generate a Playwright Python test script', value: 'python' as RecordingMode },
+				{ label: '$(files) Both', description: 'Save Markdown with screenshots AND generate Python script', value: 'both' as RecordingMode },
+			],
+			{ placeHolder: 'Choose recording output format' },
+		);
+		if (!modeChoice) return;
+
+		const options: RecordingOptions = {};
+
+		if (modeChoice.value !== 'python') {
+			const folderName = await vscode.window.showInputBox({
+				prompt: 'Folder name for the recording (leave blank for auto-generated name)',
+				placeHolder: 'e.g. MyTest_LoginFlow',
+				ignoreFocusOut: true,
+			});
+			if (folderName === undefined) return; // user pressed Escape
+			if (folderName.trim()) options.folderName = folderName.trim();
+		}
+
+		if (modeChoice.value !== 'markdown') {
+			const scriptName = await vscode.window.showInputBox({
+				prompt: 'Python script filename (.py will be added if missing)',
+				value: 'test_recording.py',
+				ignoreFocusOut: true,
+			});
+			if (scriptName === undefined) return; // user pressed Escape
+			if (scriptName.trim()) options.scriptName = scriptName.trim();
+
+			const waitInput = await vscode.window.showInputBox({
+				prompt: 'Default wait between steps in seconds (e.g. 1). Leave blank to skip.',
+				placeHolder: 'e.g. 1',
+				ignoreFocusOut: true,
+				validateInput: v => {
+					if (!v || v.trim() === '') return undefined; // blank is fine
+					const n = parseFloat(v);
+					return (isNaN(n) || n < 0) ? 'Enter a non-negative number or leave blank' : undefined;
+				},
+			});
+			if (waitInput === undefined) return; // user pressed Escape
+			const waitSecs = waitInput.trim() ? parseFloat(waitInput.trim()) : 0;
+			if (waitSecs > 0) options.defaultWaitSeconds = waitSecs;
+		}
+
 		const initialUrl = await vscode.window.showInputBox({
 			prompt: 'Initial URL to navigate to (optional)',
-			value: 'https://demo.testfire.net'
+			value: 'https://demo.testfire.net',
+			ignoreFocusOut: true,
 		});
-		await startStepRecorder(initialUrl);
+		await startStepRecorder(initialUrl, modeChoice.value, options);
 	}));
 
 	registrations.push(vscode.commands.registerCommand('webcure.stopStepRecorder', async () => {
 		await stopStepRecorder();
+	}));
+
+	registrations.push(vscode.commands.registerCommand('webcure.insertSleepStep', async () => {
+		await insertSleepStep();
 	}));
 
 	// ============================================

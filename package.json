@@ -1111,12 +1111,17 @@
       },
       {
         "command": "webcure.startStepRecorder",
-        "title": "Record Steps (Automatic)",
+        "title": "Record Steps",
         "category": "WebCure"
       },
       {
         "command": "webcure.stopStepRecorder",
         "title": "Stop Recording Steps",
+        "category": "WebCure"
+      },
+      {
+        "command": "webcure.insertSleepStep",
+        "title": "Insert Sleep Step (during recording)",
         "category": "WebCure"
       },
       {
@@ -1291,7 +1296,7 @@
     "compile": "tsc -p ./ && cp src/bridge/cli-template.js out/src/bridge/cli-template.js",
     "watch": "tsc -watch -p ./",
     "package": "vsce package",
-    "test:unit": "tsc --outDir tests/unit/out --esModuleInterop --moduleResolution node --module commonjs --target ES2020 --strict tests/unit/tools.test.ts && node tests/unit/out/tools.test.js && rm -rf tests/unit/out"
+    "test:unit": "tsc --outDir tests/unit/out --esModuleInterop --moduleResolution node --module commonjs --target ES2020 --strict tests/unit/tools.test.ts && node tests/unit/out/tools.test.js && rm -rf tests/unit/out && npx tsx tests/unit/step-recorder.test.ts"
   },
   "devDependencies": {
     "@types/node": "^20.12.12",
