@@ -98,6 +98,16 @@ function formatActionDescription(eventData: any): string {
  */
 async function handleBrowserStep(eventData: any) {
     if (!isRecordingSteps) return;
+
+    // ── Assertion mode intercept ──────────────────────────────────────────
+    // When assertion mode is active, the next click is converted into an
+    // assertion step instead of a regular action.
+    if (pendingAssertionType && eventData.type === 'click') {
+        const assertData = await processAssertionClick(eventData);
+        if (!assertData) return; // user cancelled prompt
+        eventData = assertData;
+    }
+
     if (currentRecordingMode !== 'python') {
         if (!currentMarkdownPath) return;
     }
@@ -157,9 +167,18 @@ async function handleBrowserStep(eventData: any) {
                 : isBrowserClose ? `*(No screenshot — browser was closed)*`
                 : isSleepStep   ? `*(Pause — no screenshot taken)*`
                 : `*(No screenshot)*`;
+
+            const isAssertion = String(eventData.type).startsWith('assert_');
+            const stepLabel = isAssertion ? '✅ ASSERT' : 'Action';
+            const assertionMeta = isAssertion ? `
+  assertionType: ${eventData.type}
+  assertionValue: ${JSON.stringify(eventData.assertionValue ?? '')}
+  assertionMatchType: ${eventData.assertionMatchType || ''}
+  assertionAttribute: ${eventData.assertionAttribute || ''}` : '';
+
             const mdEntry = `
 ### Step ${currentStep}
-**Action:** ${actionText}
+**${stepLabel}:** ${actionText}
 <!-- Details: 
   tagName: ${eventData.tagName || ''}
   role: ${eventData.role || ''}
@@ -168,7 +187,7 @@ async function handleBrowserStep(eventData: any) {
   cssSelector: ${eventData.cssSelector || ''}
   xpath: ${eventData.xpath || ''}
   locators: ${JSON.stringify(eventData.locators || [])}
-  context: ${JSON.stringify(eventData.context || {})}
+  context: ${JSON.stringify(eventData.context || {})}${assertionMeta}
 -->
 
 ${screenshotMarkdown}
@@ -198,7 +217,7 @@ ${screenshotMarkdown}
  */
 export async function startStepRecorder(initialUrl?: string, mode: RecordingMode = 'markdown', options: RecordingOptions = {}) {
     if (isRecordingSteps) {
-        vscode.window.showInformationMessage("Step Recording is already active.");
+        vscode.window.showInformationMessage("Browser Session recording is already active.");
         return;
     }
 
@@ -246,12 +265,24 @@ export async function startStepRecorder(initialUrl?: string, mode: RecordingMode
                     // --- Deferred Pointerdown State ---
                     let pendingPointerdown = null;      // { el, data, timerId }
 
+                    // Track Enter keypress to suppress synthetic form-submission clicks
+                    let lastEnterKeydownTime = 0;
+
                     function flushEvents() {
                         eventBuffer.sort((a, b) => {
                             if (a.type === 'type' && b.type === 'keydown') return -1;
                             if (a.type === 'keydown' && b.type === 'type') return 1;
                             return 0;
                         });
+
+                        // Deduplicate: when Enter is pressed in a form field, the
+                        // browser fires a synthetic click on the form's submit button.
+                        // Suppress any click flagged as a form-submission duplicate.
+                        const hasEnterKeydown = eventBuffer.some(ev => ev.type === 'keydown' && ev.key === 'Enter');
+                        if (hasEnterKeydown) {
+                            eventBuffer = eventBuffer.filter(ev => !ev._isFormSubmitClick);
+                        }
+
                         eventBuffer.forEach(ev => {
                             try { window.recordStep(ev); } catch (err) {
                                 console.warn('[WebCure] recordStep failed:', err);
@@ -335,6 +366,16 @@ export async function startStepRecorder(initialUrl?: string, mode: RecordingMode
                         // File inputs are handled by the Node.js filechooser interceptor
                         if (target && target.tagName === 'INPUT' && (target.type || '').toLowerCase() === 'file') return;
 
+                        // ── Assertion mode ────────────────────────────────────
+                        // In assertion mode, use the *actual clicked element*
+                        // instead of walking up to find an interactive ancestor.
+                        // This lets users assert on text spans, divs, headings, etc.
+                        if (window.__webcureAssertMode) {
+                            const data = buildEventData(target, 'click');
+                            if (data) queueEvent(data);
+                            return;
+                        }
+
                         if (pendingPointerdown) {
                             const pd = pendingPointerdown;
                             if (target === pd.el || (pd.el.contains && pd.el.contains(target)) || (target.contains && target.contains(pd.el))) {
@@ -350,8 +391,39 @@ export async function startStepRecorder(initialUrl?: string, mode: RecordingMode
 
                         const el = engine.resolveInteractiveElement(target);
                         if (!el) return;
+
+                        // Skip clicks that resolved to non-interactive elements.
+                        // If resolveInteractiveElement fell back to the raw target and
+                        // it's a generic container/text element, it's just a background
+                        // click — not a meaningful user action worth recording.
+                        const elTag = (el.tagName || '').toLowerCase();
+                        const elRole = el.getAttribute && el.getAttribute('role') || '';
+                        const isReallyInteractive = ['a', 'button', 'input', 'select', 'textarea', 'summary', 'details'].includes(elTag)
+                            || ['button', 'link', 'menuitem', 'option', 'tab', 'checkbox', 'radio', 'switch', 'combobox', 'textbox', 'searchbox', 'slider'].includes(elRole)
+                            || el.getAttribute('tabindex') === '0'
+                            || el.hasAttribute('data-slot')
+                            || el.hasAttribute('data-radix-collection-item');
+                        if (!isReallyInteractive) return;
+
                         const data = buildEventData(el, 'click');
-                        if (data) queueEvent(data);
+                        if (data) {
+                            // Flag clicks on submit buttons that occur shortly after
+                            // an Enter keydown — these are synthetic form-submission
+                            // clicks fired by the browser, not real user clicks.
+                            const now = Date.now();
+                            if (now - lastEnterKeydownTime < 200) {
+                                const tag = (el.tagName || '').toLowerCase();
+                                const elType = (el.type || '').toLowerCase();
+                                const role = (el.getAttribute && el.getAttribute('role')) || '';
+                                const isSubmitish = (tag === 'input' && (elType === 'submit' || elType === 'image'))
+                                    || tag === 'button'
+                                    || role === 'button';
+                                if (isSubmitish) {
+                                    data._isFormSubmitClick = true;
+                                }
+                            }
+                            queueEvent(data);
+                        }
                     }, true);
 
                     // CHANGE (typing / input / select)
@@ -377,6 +449,7 @@ export async function startStepRecorder(initialUrl?: string, mode: RecordingMode
                     // KEYDOWN (Enter)
                     document.addEventListener('keydown', (e) => {
                         if (e.key === 'Enter') {
+                            lastEnterKeydownTime = Date.now();
                             const target = e.target;
                             const el = engine.resolveInteractiveElement(target) || target;
                             const data = buildEventData(el, 'keydown', { key: 'Enter' });
@@ -498,7 +571,7 @@ export async function startStepRecorder(initialUrl?: string, mode: RecordingMode
         });
 
     } catch (error: any) {
-        vscode.window.showErrorMessage(`Failed to start Step Recorder: ${error.message}`);
+        vscode.window.showErrorMessage(`Failed to start Browser Session: ${error.message}`);
         isRecordingSteps = false;
     }
 }
@@ -508,7 +581,7 @@ export async function startStepRecorder(initialUrl?: string, mode: RecordingMode
  */
 export async function stopStepRecorder() {
     if (!isRecordingSteps) {
-        vscode.window.showWarningMessage('Step Recording is not currently active.');
+        vscode.window.showWarningMessage('Browser Session is not currently active.');
         return;
     }
 
@@ -581,7 +654,12 @@ export async function stopStepRecorder() {
 // ─── Python Test Script Generation ────────────────────────────────────────────
 
 function pyStr(val: any): string {
-    const s = String(val ?? '').replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    const s = String(val ?? '')
+        .replace(/\\/g, '\\\\')
+        .replace(/"/g, '\\"')
+        .replace(/\n/g, '\\n')
+        .replace(/\r/g, '\\r')
+        .replace(/\t/g, '\\t');
     return `"${s}"`;
 }
 
@@ -610,8 +688,9 @@ function stepToPythonLines(step: any, stepNum: number, indent: string): string[]
     const { type, locators, value, key, url, text, tagName } = step;
     const lines: string[] = [];
 
-    const comment = step.description
-        || (type === 'navigate' ? `Navigate to ${url || text || ''}` : `Step ${stepNum}`);
+    const comment = (step.description
+        || (type === 'navigate' ? `Navigate to ${url || text || ''}` : `Step ${stepNum}`))
+        .replace(/\n/g, ' ').replace(/\r/g, '').replace(/\s+/g, ' ').trim();
     lines.push(`${indent}# Step ${stepNum}: ${comment}`);
 
     if (type === 'navigate') {
@@ -647,6 +726,60 @@ function stepToPythonLines(step: any, stepNum: number, indent: string): string[]
             lines.push(`${indent}upload_file(page, ${locRepr}, "/path/to/your/file")`);
         } else {
             lines.push(`${indent}upload_file(page, ${locRepr}, ${pyStr(step.filePath)})`);
+        }
+        lines.push('');
+        return lines;
+    }
+
+    // ── Assertion steps ───────────────────────────────────────────────────
+    if (type === 'assert_title') {
+        lines.push(`${indent}assert_page_title(page, ${pyStr(step.assertionValue || '')})`);
+        lines.push('');
+        return lines;
+    }
+    if (type === 'assert_url') {
+        const matchType = step.assertionMatchType || 'exact';
+        lines.push(`${indent}assert_page_url(page, ${pyStr(step.assertionValue || '')}, ${pyStr(matchType)})`);
+        lines.push('');
+        return lines;
+    }
+    if (type === 'assert_snapshot') {
+        lines.push(`${indent}assert_page_contains_text(page, ${pyStr(step.assertionValue || '')})`);
+        lines.push('');
+        return lines;
+    }
+
+    // Element-targeted assertions (need locators)
+    if (type.startsWith('assert_')) {
+        const allLocs = (Array.isArray(locators) && locators.length > 0)
+            ? locators : buildFallbackLocators(step);
+        if (allLocs.length === 0) {
+            lines.push(`${indent}# Could not generate locator for assertion on <${tagName || 'element'}>`);
+            lines.push('');
+            return lines;
+        }
+        const locRepr = locatorsToRepr(locators || [], step, indent);
+
+        if (type === 'assert_visible') {
+            lines.push(`${indent}assert_element_visible(page, ${locRepr})`);
+        } else if (type === 'assert_not_visible') {
+            lines.push(`${indent}assert_element_not_visible(page, ${locRepr})`);
+        } else if (type === 'assert_text') {
+            lines.push(`${indent}assert_element_text(page, ${locRepr}, ${pyStr(step.assertionValue || '')})`);
+        } else if (type === 'assert_value') {
+            lines.push(`${indent}assert_element_value(page, ${locRepr}, ${pyStr(step.assertionValue || '')})`);
+        } else if (type === 'assert_checked') {
+            lines.push(`${indent}assert_element_checked(page, ${locRepr}, True)`);
+        } else if (type === 'assert_not_checked') {
+            lines.push(`${indent}assert_element_checked(page, ${locRepr}, False)`);
+        } else if (type === 'assert_enabled') {
+            lines.push(`${indent}assert_element_enabled(page, ${locRepr}, True)`);
+        } else if (type === 'assert_disabled') {
+            lines.push(`${indent}assert_element_enabled(page, ${locRepr}, False)`);
+        } else if (type === 'assert_count') {
+            lines.push(`${indent}assert_element_count(page, ${locRepr}, ${step.assertionValue ?? 0})`);
+        } else if (type === 'assert_attribute') {
+            lines.push(`${indent}assert_element_attribute(page, ${locRepr}, ${pyStr(step.assertionAttribute || '')}, ${pyStr(step.assertionValue || '')})`);
         }
         lines.push('');
         return lines;
@@ -692,8 +825,55 @@ function stepToPythonLines(step: any, stepNum: number, indent: string): string[]
 
 const PYTHON_HELPERS = `
 import re
+import sys
 import time
+import logging
+from datetime import datetime
 from playwright.sync_api import sync_playwright, TimeoutError as PWTimeoutError
+
+# ---------------------------------------------------------------------------
+# Logging setup
+# ---------------------------------------------------------------------------
+_log_filename = f"test_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s  %(message)s",
+    datefmt="%H:%M:%S",
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler(_log_filename, mode='w'),
+    ],
+)
+_logger = logging.getLogger("WebCure")
+_step_results: list = []  # [(step_num, description, "PASS"|"FAIL", error_msg)]
+
+
+def _record_step(step_num: int, description: str, passed: bool, error: str = ""):
+    status = "PASS" if passed else "FAIL"
+    _step_results.append((step_num, description, status, error))
+    icon = "\\u2705" if passed else "\\u274C"
+    msg = f"{icon}  Step {step_num}: {description} — {status}"
+    if error:
+        msg += f"  [{error}]"
+    _logger.info(msg)
+
+
+def _print_summary():
+    total = len(_step_results)
+    passed = sum(1 for r in _step_results if r[2] == "PASS")
+    failed = total - passed
+    _logger.info("")
+    _logger.info("=" * 60)
+    _logger.info(f"TEST SUMMARY: {passed}/{total} steps passed, {failed} failed")
+    _logger.info("=" * 60)
+    if failed:
+        _logger.info("Failed steps:")
+        for num, desc, status, err in _step_results:
+            if status == "FAIL":
+                _logger.info(f"  Step {num}: {desc}")
+                _logger.info(f"    Error: {err}")
+    _logger.info(f"Full log saved to: {_log_filename}")
+    _logger.info("=" * 60)
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -815,6 +995,114 @@ def upload_file(page, locators: list, file_path: str, timeout: int = WAIT_TIMEOU
         locators = [{"strategy": "css", "value": 'input[type="file"]', "confidence": 0.5}]
     el = find_element(page, locators, timeout, state="attached")  # file inputs are often hidden
     el.set_input_files(file_path)
+
+
+# ---------------------------------------------------------------------------
+# Self-healing assertion helpers
+# ---------------------------------------------------------------------------
+def assert_element_visible(page, locators: list, timeout: int = WAIT_TIMEOUT):
+    """Assert that the element resolved by self-healing locators is visible."""
+    el = find_element(page, locators, timeout)
+    assert el.is_visible(), f"Expected element to be visible"
+
+
+def assert_element_not_visible(page, locators: list, timeout: int = 2000):
+    """Assert that no element matching the locators is visible."""
+    last_err = None
+    ordered = sorted(locators, key=lambda l: l.get("confidence", 0), reverse=True)
+    for loc in ordered:
+        strategy = loc.get("strategy", "css")
+        value = loc.get("value", "")
+        if not value:
+            continue
+        try:
+            el = _resolve_locator(page, strategy, value)
+            el.wait_for(state="hidden", timeout=timeout)
+            return  # success — element is hidden or detached
+        except Exception as e:
+            last_err = e
+    # If none of the locators found ANY element, that also counts as not visible
+    if last_err:
+        return  # element truly not found → assertion passes
+
+
+def assert_element_text(page, locators: list, expected_text: str, timeout: int = WAIT_TIMEOUT):
+    """Assert that the element's text content contains the expected text (whitespace-normalized)."""
+    el = find_element(page, locators, timeout)
+    actual = re.sub(r'\\s+', ' ', el.inner_text()).strip()
+    expected = re.sub(r'\\s+', ' ', expected_text).strip()
+    assert expected in actual, f"Expected text '{expected}' in '{actual[:200]}'"
+
+
+def assert_element_value(page, locators: list, expected_value: str, timeout: int = WAIT_TIMEOUT):
+    """Assert that the input element's value matches."""
+    el = find_element(page, locators, timeout)
+    actual = el.input_value()
+    assert actual == expected_value, f"Expected value '{expected_value}' but got '{actual}'"
+
+
+def assert_element_checked(page, locators: list, expected: bool = True, timeout: int = WAIT_TIMEOUT):
+    """Assert that a checkbox/radio is checked (or unchecked if expected=False)."""
+    el = find_element(page, locators, timeout)
+    actual = el.is_checked()
+    state = "checked" if expected else "unchecked"
+    assert actual == expected, f"Expected element to be {state} but it was {'checked' if actual else 'unchecked'}"
+
+
+def assert_element_enabled(page, locators: list, expected: bool = True, timeout: int = WAIT_TIMEOUT):
+    """Assert that the element is enabled (or disabled if expected=False)."""
+    el = find_element(page, locators, timeout)
+    actual = el.is_enabled()
+    state = "enabled" if expected else "disabled"
+    assert actual == expected, f"Expected element to be {state} but it was {'enabled' if actual else 'disabled'}"
+
+
+def assert_page_title(page, expected_title: str):
+    """Assert that the page title matches."""
+    actual = page.title()
+    assert actual == expected_title, f"Expected title '{expected_title}' but got '{actual}'"
+
+
+def assert_page_url(page, expected_url: str, match_type: str = "exact"):
+    """Assert that the page URL matches (exact or contains)."""
+    actual = page.url
+    if match_type == "contains":
+        assert expected_url in actual, f"Expected URL to contain '{expected_url}' but got '{actual}'"
+    else:
+        assert actual == expected_url, f"Expected URL '{expected_url}' but got '{actual}'"
+
+
+def assert_element_count(page, locators: list, expected_count: int, timeout: int = WAIT_TIMEOUT):
+    """Assert that the number of elements matching the best locator equals expected_count."""
+    ordered = sorted(locators, key=lambda l: l.get("confidence", 0), reverse=True)
+    for loc in ordered:
+        strategy = loc.get("strategy", "css")
+        value = loc.get("value", "")
+        if not value:
+            continue
+        try:
+            el = _resolve_locator(page, strategy, value)
+            el.first.wait_for(state="visible", timeout=timeout)
+            actual = el.count()
+            assert actual == expected_count, f"Expected {expected_count} elements but found {actual}"
+            return
+        except AssertionError:
+            raise
+        except Exception:
+            continue
+    raise Exception(f"Could not count elements — none of the locators matched")
+
+
+def assert_element_attribute(page, locators: list, attr_name: str, expected_value: str, timeout: int = WAIT_TIMEOUT):
+    """Assert that the element's attribute has the expected value."""
+    el = find_element(page, locators, timeout)
+    actual = el.get_attribute(attr_name)
+    assert actual == expected_value, f"Expected {attr_name}='{expected_value}' but got '{actual}'"
+
+
+def assert_page_contains_text(page, expected_text: str, timeout: int = WAIT_TIMEOUT):
+    """Assert that the page body contains the expected text."""
+    page.get_by_text(expected_text, exact=False).first.wait_for(state="visible", timeout=timeout)
 `;
 
 export function isStepRecording(): boolean {
@@ -826,7 +1114,7 @@ export function isStepRecording(): boolean {
  */
 export async function insertSleepStep() {
     if (!isRecordingSteps) {
-        vscode.window.showWarningMessage('Step Recording is not active — start recording first.');
+        vscode.window.showWarningMessage('Browser Session is not active — start recording first.');
         return;
     }
     const input = await vscode.window.showInputBox({
@@ -843,6 +1131,284 @@ export async function insertSleepStep() {
         description: `Wait ${secs} second${secs !== 1 ? 's' : ''}`,
     });
     if (outputChannel) outputChannel.appendLine(`[Step Recorder] Inserted sleep: ${secs}s`);
+}
+
+// ─── Assertion Mode ───────────────────────────────────────────────────────────
+
+export type AssertionType =
+    | 'assert_visible'
+    | 'assert_not_visible'
+    | 'assert_text'
+    | 'assert_value'
+    | 'assert_checked'
+    | 'assert_not_checked'
+    | 'assert_enabled'
+    | 'assert_disabled'
+    | 'assert_title'
+    | 'assert_url'
+    | 'assert_count'
+    | 'assert_attribute'
+    | 'assert_snapshot';
+
+let pendingAssertionType: AssertionType | null = null;
+
+/**
+ * Activate assertion mode.  The NEXT browser click will be captured as an
+ * assertion step instead of a regular action.  Pass `'assert_count'` to
+ * additionally prompt the user for the expected count.
+ */
+export function activateAssertionMode(type: AssertionType) {
+    if (!isRecordingSteps) {
+        vscode.window.showWarningMessage('Browser Session is not active — start recording first.');
+        return;
+    }
+    pendingAssertionType = type;
+
+    // Inject an assertion-mode indicator into the browser page so the
+    // event-wiring script knows to treat the next click differently.
+    const page = BrowserManager.getExistingPage();
+    if (page && !page.isClosed()) {
+        page.evaluate(`(() => { window.__webcureAssertMode = "${type}"; })();`).catch(() => {});
+    }
+
+    vscode.window.showInformationMessage(`🟢 Assertion mode ON (${type.replace('assert_', '')}): click any element on the page.`);
+    if (outputChannel) outputChannel.appendLine(`[Step Recorder] Assertion mode activated: ${type}`);
+}
+
+/**
+ * Assert: Page Title — captures current title without element interaction.
+ */
+export async function assertPageTitle() {
+    if (!isRecordingSteps) {
+        vscode.window.showWarningMessage('Browser Session is not active — start recording first.');
+        return;
+    }
+    const page = BrowserManager.getExistingPage();
+    if (!page || page.isClosed()) {
+        vscode.window.showWarningMessage('No browser page is open.');
+        return;
+    }
+    const title = await page.title();
+    handleBrowserStep({
+        type: 'assert_title',
+        assertionValue: title,
+        description: `Assert page title equals "${title}"`,
+    });
+    vscode.window.showInformationMessage(`✅ Asserted page title: "${title}"`);
+    if (outputChannel) outputChannel.appendLine(`[Step Recorder] Assert page title: "${title}"`);
+}
+
+/**
+ * Assert: Page URL — captures current URL.
+ */
+export async function assertPageUrl() {
+    if (!isRecordingSteps) {
+        vscode.window.showWarningMessage('Browser Session is not active — start recording first.');
+        return;
+    }
+    const page = BrowserManager.getExistingPage();
+    if (!page || page.isClosed()) {
+        vscode.window.showWarningMessage('No browser page is open.');
+        return;
+    }
+    const url = page.url();
+    const matchType = await vscode.window.showQuickPick(
+        [
+            { label: 'Exact match', value: 'exact' },
+            { label: 'Contains', value: 'contains' },
+        ],
+        { placeHolder: `Current URL: ${url} — How should it be matched?` },
+    );
+    if (!matchType) return;
+    handleBrowserStep({
+        type: 'assert_url',
+        assertionValue: url,
+        assertionMatchType: matchType.value,
+        description: `Assert page URL ${matchType.value === 'exact' ? 'equals' : 'contains'} "${url}"`,
+    });
+    vscode.window.showInformationMessage(`✅ Asserted page URL (${matchType.value}): "${url}"`);
+    if (outputChannel) outputChannel.appendLine(`[Step Recorder] Assert URL (${matchType.value}): "${url}"`);
+}
+
+/**
+ * Assert: Full Page Snapshot — captures all visible text on the page.
+ */
+export async function assertPageSnapshot() {
+    if (!isRecordingSteps) {
+        vscode.window.showWarningMessage('Browser Session is not active — start recording first.');
+        return;
+    }
+    const page = BrowserManager.getExistingPage();
+    if (!page || page.isClosed()) {
+        vscode.window.showWarningMessage('No browser page is open.');
+        return;
+    }
+
+    const textToFind = await vscode.window.showInputBox({
+        prompt: 'Enter text that should be present on the page',
+        placeHolder: 'e.g. Welcome back, John',
+        ignoreFocusOut: true,
+    });
+    if (!textToFind) return;
+
+    handleBrowserStep({
+        type: 'assert_snapshot',
+        assertionValue: textToFind,
+        description: `Assert page contains text "${textToFind}"`,
+    });
+    vscode.window.showInformationMessage(`✅ Asserted page contains: "${textToFind}"`);
+    if (outputChannel) outputChannel.appendLine(`[Step Recorder] Assert page text: "${textToFind}"`);
+}
+
+/**
+ * Called from the browser-injected event wiring when an assertion-mode click
+ * lands on an element.  Augments the event data with assertion metadata.
+ */
+async function processAssertionClick(eventData: any): Promise<any | null> {
+    const aType = pendingAssertionType;
+    if (!aType) return null;
+
+    // Reset mode immediately so subsequent clicks are normal
+    pendingAssertionType = null;
+    const page = BrowserManager.getExistingPage();
+    if (page && !page.isClosed()) {
+        page.evaluate(`(() => { delete window.__webcureAssertMode; })();`).catch(() => {});
+    }
+
+    const label = eventData.label || eventData.accessibleName || eventData.text || eventData.tagName || 'element';
+    const safeLabel = String(label).substring(0, 60);
+
+    if (aType === 'assert_visible') {
+        return {
+            ...eventData,
+            type: 'assert_visible',
+            description: `Assert '${safeLabel}' is visible`,
+        };
+    }
+
+    if (aType === 'assert_not_visible') {
+        return {
+            ...eventData,
+            type: 'assert_not_visible',
+            description: `Assert '${safeLabel}' is NOT visible`,
+        };
+    }
+
+    if (aType === 'assert_text') {
+        const rawText = eventData.text || '';
+        // Let the user review and edit — raw innerText can be huge for containers
+        const text = await vscode.window.showInputBox({
+            prompt: `Text to assert on '${safeLabel}' (edit as needed)`,
+            value: rawText.substring(0, 200).replace(/\n/g, ' ').trim(),
+            ignoreFocusOut: true,
+        });
+        if (text === undefined) return null; // user cancelled
+        return {
+            ...eventData,
+            type: 'assert_text',
+            assertionValue: text,
+            description: `Assert '${safeLabel}' contains text "${text.substring(0, 60)}"`,
+        };
+    }
+
+    if (aType === 'assert_value') {
+        // input_value() only works on <input>, <textarea>, <select>
+        const tag = (eventData.tagName || '').toLowerCase();
+        if (tag !== 'input' && tag !== 'textarea' && tag !== 'select') {
+            vscode.window.showWarningMessage(`Cannot assert value on <${eventData.tagName || 'element'}> — only works on input, textarea, and select elements. Use "Text" assertion instead.`);
+            return null;
+        }
+        const value = eventData.value || '';
+        return {
+            ...eventData,
+            type: 'assert_value',
+            assertionValue: value,
+            description: `Assert '${safeLabel}' has value "${String(value).substring(0, 60)}"`,
+        };
+    }
+
+    if (aType === 'assert_checked') {
+        return {
+            ...eventData,
+            type: 'assert_checked',
+            description: `Assert '${safeLabel}' is checked`,
+        };
+    }
+
+    if (aType === 'assert_not_checked') {
+        return {
+            ...eventData,
+            type: 'assert_not_checked',
+            description: `Assert '${safeLabel}' is NOT checked`,
+        };
+    }
+
+    if (aType === 'assert_enabled') {
+        return {
+            ...eventData,
+            type: 'assert_enabled',
+            description: `Assert '${safeLabel}' is enabled`,
+        };
+    }
+
+    if (aType === 'assert_disabled') {
+        return {
+            ...eventData,
+            type: 'assert_disabled',
+            description: `Assert '${safeLabel}' is disabled`,
+        };
+    }
+
+    if (aType === 'assert_count') {
+        const countInput = await vscode.window.showInputBox({
+            prompt: `How many '${safeLabel}' elements do you expect?`,
+            placeHolder: 'e.g. 3',
+            validateInput: v => (!v || isNaN(parseInt(v)) || parseInt(v) < 0) ? 'Enter a non-negative integer' : undefined,
+            ignoreFocusOut: true,
+        });
+        if (!countInput) return null; // cancelled
+        const count = parseInt(countInput);
+        return {
+            ...eventData,
+            type: 'assert_count',
+            assertionValue: count,
+            description: `Assert count of '${safeLabel}' equals ${count}`,
+        };
+    }
+
+    if (aType === 'assert_attribute') {
+        const attrName = await vscode.window.showInputBox({
+            prompt: `Attribute name to check on '${safeLabel}'`,
+            placeHolder: 'e.g. class, href, data-status',
+            ignoreFocusOut: true,
+        });
+        if (!attrName) return null;
+        // Read the current attribute value from the element
+        let currentValue = '';
+        if (page && !page.isClosed() && eventData.locators?.length) {
+            try {
+                const locators = eventData.locators;
+                const bestLoc = [...locators].sort((a: any, b: any) => (b.confidence || 0) - (a.confidence || 0))[0];
+                const el = page.locator(bestLoc.strategy === 'css' ? bestLoc.value : `xpath=${bestLoc.value}`);
+                currentValue = await el.getAttribute(attrName) || '';
+            } catch { /* use empty */ }
+        }
+        const attrValue = await vscode.window.showInputBox({
+            prompt: `Expected value for "${attrName}" attribute`,
+            value: currentValue,
+            ignoreFocusOut: true,
+        });
+        if (attrValue === undefined) return null; // Escape pressed
+        return {
+            ...eventData,
+            type: 'assert_attribute',
+            assertionAttribute: attrName,
+            assertionValue: attrValue,
+            description: `Assert '${safeLabel}' has ${attrName}="${attrValue}"`,
+        };
+    }
+
+    return null;
 }
 
 export function generateStepsPythonScript(steps: any[], defaultWaitSeconds = 0): string {
@@ -869,6 +1435,7 @@ export function generateStepsPythonScript(steps: any[], defaultWaitSeconds = 0):
     lines.push('    with sync_playwright() as p:');
     lines.push('        browser = p.chromium.launch(headless=False)');
     lines.push('        page = browser.new_page()');
+    lines.push('        _has_failure = False');
     lines.push('');
 
     let stepNum = 0;
@@ -876,18 +1443,44 @@ export function generateStepsPythonScript(steps: any[], defaultWaitSeconds = 0):
         if (step.type === 'close' && step.tagName === 'Browser') continue;
         stepNum++;
         const stepLines = stepToPythonLines(step, stepNum, indent);
-        // Inject default wait between action steps (not after navigate / sleep / close)
+        // Inject default wait between action steps (not after navigate / sleep / close / assertions)
         const isActionStep = defaultWaitSeconds > 0
             && step.type !== 'navigate'
             && step.type !== 'sleep'
-            && step.type !== 'close';
+            && step.type !== 'close'
+            && !String(step.type).startsWith('assert_');
         if (isActionStep && stepLines.length > 0 && stepLines[stepLines.length - 1] === '') {
             stepLines.splice(stepLines.length - 1, 0, `${indent}time.sleep(${defaultWaitSeconds})  # default wait between steps`);
         }
-        for (const l of stepLines) lines.push(l);
+
+        // Extract the comment line (first line starting with #) as description
+        const commentLine = stepLines.find(l => l.trim().startsWith('# Step'));
+        const desc = commentLine
+            ? commentLine.trim().replace(/^# /, '').replace(/^Step \\d+:\\s*/, '')
+            : `Step ${stepNum}`;
+        const pyDesc = desc.replace(/'/g, "\\'");
+
+        // Wrap step in try/except for pass/fail tracking
+        lines.push(`${indent}try:`);
+        // Re-indent step lines under try block
+        for (const l of stepLines) {
+            if (l === '') {
+                // skip blank lines inside the try
+            } else {
+                lines.push(`    ${l}`);
+            }
+        }
+        lines.push(`${indent}    _record_step(${stepNum}, '${pyDesc}', True)`);
+        lines.push(`${indent}except Exception as _e:`);
+        lines.push(`${indent}    _record_step(${stepNum}, '${pyDesc}', False, str(_e)[:200])`);
+        lines.push(`${indent}    _has_failure = True`);
+        lines.push('');
     }
 
+    lines.push(`${indent}_print_summary()`);
     lines.push(`${indent}browser.close()`);
+    lines.push(`${indent}if _has_failure:`);
+    lines.push(`${indent}    sys.exit(1)`);
     lines.push('');
     lines.push('');
     lines.push('if __name__ == "__main__":');

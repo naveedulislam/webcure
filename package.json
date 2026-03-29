@@ -1101,27 +1101,52 @@
       },
       {
         "command": "webcure.startRecording",
-        "title": "Start Recording",
+        "title": "Record API Script (Legacy)",
         "category": "WebCure"
       },
       {
         "command": "webcure.stopRecording",
-        "title": "Stop Recording (Generate Python Script)",
+        "title": "Stop API Script Recording",
         "category": "WebCure"
       },
       {
         "command": "webcure.startStepRecorder",
-        "title": "Record Steps",
+        "title": "Record Browser Session",
         "category": "WebCure"
       },
       {
         "command": "webcure.stopStepRecorder",
-        "title": "Stop Recording Steps",
+        "title": "Stop Browser Session",
         "category": "WebCure"
       },
       {
         "command": "webcure.insertSleepStep",
-        "title": "Insert Sleep Step (during recording)",
+        "title": "Insert Wait Step",
+        "category": "WebCure"
+      },
+      {
+        "command": "webcure.assertElement",
+        "title": "Assert: Element (click next element to assert)",
+        "category": "WebCure"
+      },
+      {
+        "command": "webcure.assertPageTitle",
+        "title": "Assert: Page Title",
+        "category": "WebCure"
+      },
+      {
+        "command": "webcure.assertPageUrl",
+        "title": "Assert: Page URL",
+        "category": "WebCure"
+      },
+      {
+        "command": "webcure.assertElementCount",
+        "title": "Assert: Element Count (click next element to count)",
+        "category": "WebCure"
+      },
+      {
+        "command": "webcure.assertSnapshot",
+        "title": "Assert: Full Page Snapshot (text content)",
         "category": "WebCure"
       },
       {
@@ -1289,7 +1314,14 @@
           "description": "Enable the file-bridge for AI agent integration (Cursor, etc.)."
         }
       }
-    }
+    },
+    "keybindings": [
+      {
+        "command": "webcure.assertElement",
+        "key": "ctrl+shift+a",
+        "mac": "cmd+shift+a"
+      }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",

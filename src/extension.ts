@@ -21,7 +21,7 @@ import {
 import { startBridge, stopBridge, setBridgeToolInstances } from './bridge/file-bridge';
 import { startRecording, stopRecording, recordAction, isRecording, initRecorder } from './recorder/action-log';
 import { generatePythonScript } from './recorder/script-generator';
-import { startStepRecorder, stopStepRecorder, setStepRecorderOutputChannel, RecordingMode, RecordingOptions, insertSleepStep, isStepRecording } from './recorder/step-recorder';
+import { startStepRecorder, stopStepRecorder, setStepRecorderOutputChannel, RecordingMode, RecordingOptions, insertSleepStep, isStepRecording, activateAssertionMode, assertPageTitle, assertPageUrl, assertPageSnapshot } from './recorder/step-recorder';
 
 // Output channel for test results
 let outputChannel: vscode.OutputChannel;
@@ -257,7 +257,7 @@ export async function activate(context: vscode.ExtensionContext) {
 		outputChannel.show(false);
 		const ts = new Date().toISOString().replace('T', ' ').replace('Z', '');
 		outputChannel.appendLine(`\n${'='.repeat(60)}`);
-		outputChannel.appendLine(`[${ts}] [INFO] WebCure: Script recording started. Use browser commands, then run "Stop Recording".`);
+		outputChannel.appendLine(`[${ts}] [INFO] WebCure: API script recording started. Use browser commands, then run "Stop API Script Recording".`);
 		outputChannel.appendLine(`${'='.repeat(60)}\n`);
 	}));
 
@@ -282,7 +282,7 @@ export async function activate(context: vscode.ExtensionContext) {
 		outputChannel.show(false);
 		const ts = new Date().toISOString().replace('T', ' ').replace('Z', '');
 		outputChannel.appendLine(`\n${'='.repeat(60)}`);
-		outputChannel.appendLine(`[${ts}] [INFO] WebCure: Script recording stopped — ${actions.length} action(s) captured.`);
+		outputChannel.appendLine(`[${ts}] [INFO] WebCure: API script recording stopped — ${actions.length} action(s) captured.`);
 		outputChannel.appendLine(`${'='.repeat(60)}\n`);
 
 		if (actions.length === 0) {
@@ -378,6 +378,45 @@ export async function activate(context: vscode.ExtensionContext) {
 
 	registrations.push(vscode.commands.registerCommand('webcure.insertSleepStep', async () => {
 		await insertSleepStep();
+	}));
+
+	// ============================================
+	// 5b. ASSERTION COMMANDS (during step recording)
+	// ============================================
+
+	registrations.push(vscode.commands.registerCommand('webcure.assertElement', async () => {
+		const assertType = await vscode.window.showQuickPick(
+			[
+				{ label: '$(eye)  Visible',          description: 'Assert element is visible on page',       value: 'assert_visible' },
+				{ label: '$(eye-closed)  Not Visible', description: 'Assert element is NOT visible',         value: 'assert_not_visible' },
+				{ label: '$(symbol-string)  Text',   description: 'Assert element contains specific text',   value: 'assert_text' },
+				{ label: '$(symbol-variable)  Value', description: 'Assert input/select has specific value', value: 'assert_value' },
+				{ label: '$(check)  Checked',        description: 'Assert checkbox/radio is checked',        value: 'assert_checked' },
+				{ label: '$(close)  Not Checked',    description: 'Assert checkbox/radio is NOT checked',    value: 'assert_not_checked' },
+				{ label: '$(debug-start)  Enabled',  description: 'Assert element is enabled',               value: 'assert_enabled' },
+				{ label: '$(debug-pause)  Disabled', description: 'Assert element is disabled',              value: 'assert_disabled' },
+				{ label: '$(tag)  Attribute',        description: 'Assert element attribute has value',       value: 'assert_attribute' },
+			],
+			{ placeHolder: 'Choose assertion type — then click the target element on the page' },
+		);
+		if (!assertType) return;
+		activateAssertionMode(assertType.value as any);
+	}));
+
+	registrations.push(vscode.commands.registerCommand('webcure.assertPageTitle', async () => {
+		await assertPageTitle();
+	}));
+
+	registrations.push(vscode.commands.registerCommand('webcure.assertPageUrl', async () => {
+		await assertPageUrl();
+	}));
+
+	registrations.push(vscode.commands.registerCommand('webcure.assertElementCount', async () => {
+		activateAssertionMode('assert_count');
+	}));
+
+	registrations.push(vscode.commands.registerCommand('webcure.assertSnapshot', async () => {
+		await assertPageSnapshot();
 	}));
 
 	// ============================================

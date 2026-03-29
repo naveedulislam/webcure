@@ -23,8 +23,9 @@ Both approaches share the same Playwright-based browser engine. Whether Copilot 
 - [How LM Tools and Bridge Commands Relate](#how-lm-tools-and-bridge-commands-relate)
 - [VS Code Commands (Command Palette)](#vs-code-commands-command-palette)
 - [HTTP API Server](#http-api-server)
-- [Step Recording](#step-recording)
-- [Script Recording & Python Playback](#script-recording--python-playback)
+- [Browser Session Recording](#browser-session-recording)
+  - [Assertions](#assertions)
+- [API Script Recording & Python Playback (Legacy)](#api-script-recording--python-playback-legacy)
 - [JSON Script Runner](#json-script-runner)
 - [Configuration](#configuration)
 - [Development](#development)
@@ -36,41 +37,40 @@ Both approaches share the same Playwright-based browser engine. Whether Copilot 
 ## Architecture Overview
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│                         WebCure Extension                        │
-│                                                                  │
-│  ┌────────────────────┐   ┌────────────────────┐                │
-│  │ Language Model Tools│   │ File Bridge + CLI   │                │
-│  │ (VS Code Copilot)  │   │ (Cursor / Agents)   │                │
-│  │                    │   │                    │                │
-│  │ 28 explorer_* tools│   │ .webcure/input.json │                │
-│  │ registered via     │   │ .webcure/output.json│                │
-│  │ vscode.lm API      │   │ .webcure/cli.js     │                │
-│  └────────┬───────────┘   └────────┬───────────┘                │
-│           │                        │                             │
-│           ▼                        ▼                             │
-│  ┌──────────────────────────────────────────┐                   │
-│  │      Shared Tool Instances (28 tools)    │                   │
-│  └──────────────────┬───────────────────────┘                   │
-│                     │                                            │
-│                     ▼                                            │
-│  ┌──────────────────────────────────────────┐                   │
-│  │      BrowserManager (Playwright-core)    │                   │
-│  │      Uses system Chrome or Edge          │                   │
-│  └──────────────────────────────────────────┘                   │
-│                                                                  │
-│  ┌────────────────┐  ┌──────────────────────┐  ┌──────────────┐  │
-│  │  HTTP API Server│  │  Action Recorder     │  │ Step Recorder│  │
-│  │  (port 5678)    │  │  + Python Generator  │  │ (Markdown +  │  │
-│  └────────────────┘  └──────────────────────┘  │  Screenshots)│  │
-│                                                 └──────────────┘  │
-└──────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                          WebCure Extension                          │
+│                                                                     │
+│  ┌──────────────────────┐   ┌──────────────────────┐                │
+│  │ Language Model Tools │   │ File Bridge + CLI    │                │
+│  │ (VS Code Copilot)    │   │ (Cursor / Agents)    │                │
+│  │                      │   │                      │                │
+│  │ 28 explorer_* tools  │   │ .webcure/input.json  │                │
+│  │ registered via       │   │ .webcure/output.json │                │
+│  │ vscode.lm API        │   │ .webcure/cli.js      │                │
+│  └──────────┬───────────┘   └──────────┬───────────┘                │
+│             │                          │                            │
+│             ▼                          ▼                            │
+│  ┌───────────────────────────────────────────────┐                  │
+│  │       Shared Tool Instances (28 tools)        │                  │
+│  └───────────────────────┬───────────────────────┘                  │
+│                          │                                          │
+│                          ▼                                          │
+│  ┌───────────────────────────────────────────────┐                  │
+│  │       BrowserManager (Playwright-core)        │                  │
+│  │          Uses system Chrome or Edge           │                  │
+│  └───────────────────────────────────────────────┘                  │
+│                                                                     │
+│  ┌─────────────────-┐  ┌─────────────────────┐  ┌─────────────────┐ │
+│  │ HTTP API Server  │  │ API Script Recorder │  │ Browser Session │ │
+│  │ (port 5678)      │  │ (Legacy)            │  │ Recorder        │ │
+│  └────────────────-─┘  └─────────────────────┘  └─────────────────┘ │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
 **Key points:**
 
 - The 28 Language Model Tool classes are the core engine. They implement `vscode.LanguageModelTool`.
-- The file bridge maps its ~60 command names to those same 28 tool instances (plus ~17 bridge-only commands for scrolling, recording, etc.).
+- The file bridge handles 61 command names — 38 map to the 28 tool instances, plus 23 bridge-only commands for scrolling, recording, etc.
 - Commands like `scrollDown`, `doubleClick`, `rightClick`, `launchBrowser`, `getPageText`, `highlight` exist **only** in the file bridge — they have no LM tool equivalent because they are simple Playwright calls that don't need the full tool infrastructure.
 - The HTTP API server provides a third access path to the same tools via `POST /invoke`.
 
@@ -362,10 +362,10 @@ These commands exist only in the file bridge and are implemented directly agains
 | `getAccessibilityTree` | Get accessibility tree (delegates to snapshot tool)        |
 | `highlight`            | Visually outline an element on the page                    |
 | `getDialogText`        | Get text from the current dialog                           |
-| `startRecording`       | Begin recording actions                                    |
-| `stopRecording`        | Stop recording and return generated Python script          |
-| `startStepRecorder`    | Start automatic step recording (optionally with `url`)     |
-| `stopStepRecorder`     | Stop step recording and generate Markdown output           |
+| `startRecording`       | Begin recording API-based actions (legacy)                 |
+| `stopRecording`        | Stop API recording and return generated Python script      |
+| `startStepRecorder`    | Start browser session recording (optionally with `url`)    |
+| `stopStepRecorder`     | Stop browser session and generate output                   |
 | `restartExtensionHost` | Restart VS Code extension host (useful after VSIX install) |
 | `runScript`            | Execute a JSON automation script                           |
 
@@ -382,7 +382,7 @@ No. There is one set of 28 tool classes (in `tools.ts`). The LM tool registratio
 
 The bridge adds **convenience aliases** (e.g., `goBack` → `navigateBack`, `closeBrowser` → `close`) and **bridge-only commands** (scrolling, page info, recording) that don't need the full LM tool interface.
 
-The 33 VS Code commands in the Command Palette (e.g., `webcure.testNavigate`) are **test harnesses** — they prompt for input via `vscode.window.showInputBox` and invoke the same tool instances, displaying results in the Output panel. They are useful for manual testing without Copilot or the CLI.
+The Command Palette exposes 41 VS Code commands total. Of these, 27 (e.g., `webcure.testNavigate`) are **test harnesses** — they prompt for input via `vscode.window.showInputBox` and invoke the same tool instances, displaying results in the Output panel. The remaining commands handle recording, assertions, the API server, and script execution.
 
 ---
 
@@ -390,44 +390,49 @@ The 33 VS Code commands in the Command Palette (e.g., `webcure.testNavigate`) ar
 
 All commands are accessible via `Cmd+Shift+P` (macOS) / `Ctrl+Shift+P` (Windows/Linux) under the **WebCure** category:
 
-| Command                         | What it does                              |
-| ------------------------------- | ----------------------------------------- |
-| WebCure: Navigate to URL        | Prompts for a URL and navigates           |
-| WebCure: Click Element          | Prompts for text/selector and clicks      |
-| WebCure: Hover Element          | Hover over an element                     |
-| WebCure: Type Text              | Type into a field                         |
-| WebCure: Type Text from File    | Type file contents into a field           |
-| WebCure: Press Key              | Press a keyboard key                      |
-| WebCure: Take Screenshot        | Save a screenshot                         |
-| WebCure: Take Snapshot          | Capture accessibility tree with refs      |
-| WebCure: Find Element           | Find element by text/selector             |
-| WebCure: Interact with Element  | Multi-action on an element by ref         |
-| WebCure: Select Option          | Pick a dropdown value                     |
-| WebCure: Fill Form              | Fill multiple form fields                 |
-| WebCure: Drag Element           | Drag and drop                             |
-| WebCure: Evaluate JavaScript    | Run JS in page context                    |
-| WebCure: Extract Text Content   | Extract visible text                      |
-| WebCure: Wait For Text          | Wait for text on page                     |
-| WebCure: Wait For Element       | Wait for element state                    |
-| WebCure: Resize Browser Window  | Resize viewport                           |
-| WebCure: Navigate Back          | Go back in history                        |
-| WebCure: Manage Tabs            | List/create/close/select tabs             |
-| WebCure: Close Browser          | Close the browser                         |
-| WebCure: Get Console Messages   | Show browser console output               |
-| WebCure: Get Network Requests   | Show observed network requests            |
-| WebCure: Handle Dialog          | Accept/dismiss a dialog                   |
-| WebCure: Upload File            | Upload files                              |
-| WebCure: Scrape Menu/Navigation | Extract menu structure                    |
-| WebCure: Scrape Page Structure  | Extract forms/tables                      |
-| WebCure: Tools Menu             | Quick-pick menu of all tools              |
-| WebCure: Start API Server       | Start the HTTP API on port 5678           |
-| WebCure: Stop API Server        | Stop the HTTP API                         |
-| WebCure: Start Recording        | Begin recording browser actions           |
-| WebCure: Stop Recording         | Stop and generate Python script           |
-| WebCure: Record Steps           | Start step recording (choose output mode) |
-| WebCure: Stop Recording Steps   | Stop step recording and save output       |
-| WebCure: Insert Sleep Step      | Insert a timed pause at a specific point  |
-| WebCure: Run Script             | Execute a JSON automation script          |
+| Command                             | What it does                                                   |
+| ----------------------------------- | -------------------------------------------------------------- |
+| WebCure: Navigate to URL            | Prompts for a URL and navigates                                |
+| WebCure: Click Element              | Prompts for text/selector and clicks                           |
+| WebCure: Hover Element              | Hover over an element                                          |
+| WebCure: Type Text                  | Type into a field                                              |
+| WebCure: Type Text from File        | Type file contents into a field                                |
+| WebCure: Press Key                  | Press a keyboard key                                           |
+| WebCure: Take Screenshot            | Save a screenshot                                              |
+| WebCure: Take Snapshot              | Capture accessibility tree with refs                           |
+| WebCure: Find Element               | Find element by text/selector                                  |
+| WebCure: Interact with Element      | Multi-action on an element by ref                              |
+| WebCure: Select Option              | Pick a dropdown value                                          |
+| WebCure: Fill Form                  | Fill multiple form fields                                      |
+| WebCure: Drag Element               | Drag and drop                                                  |
+| WebCure: Evaluate JavaScript        | Run JS in page context                                         |
+| WebCure: Extract Text Content       | Extract visible text                                           |
+| WebCure: Wait For Text              | Wait for text on page                                          |
+| WebCure: Wait For Element           | Wait for element state                                         |
+| WebCure: Resize Browser Window      | Resize viewport                                                |
+| WebCure: Navigate Back              | Go back in history                                             |
+| WebCure: Manage Tabs                | List/create/close/select tabs                                  |
+| WebCure: Close Browser              | Close the browser                                              |
+| WebCure: Get Console Messages       | Show browser console output                                    |
+| WebCure: Get Network Requests       | Show observed network requests                                 |
+| WebCure: Handle Dialog              | Accept/dismiss a dialog                                        |
+| WebCure: Upload File                | Upload files                                                   |
+| WebCure: Scrape Menu/Navigation     | Extract menu structure                                         |
+| WebCure: Scrape Page Structure      | Extract forms/tables                                           |
+| WebCure: Tools Menu                 | Quick-pick menu of all tools                                   |
+| WebCure: Start API Server           | Start the HTTP API on port 5678                                |
+| WebCure: Stop API Server            | Stop the HTTP API                                              |
+| WebCure: Record API Script (Legacy) | Begin recording API-based browser actions                      |
+| WebCure: Stop API Script Recording  | Stop and generate Python script                                |
+| WebCure: Record Browser Session     | Start session recording (choose output)                        |
+| WebCure: Stop Browser Session       | Stop session recording and save output                         |
+| WebCure: Insert Wait Step           | Insert a timed pause at a specific point                       |
+| WebCure: Assert: Element            | Pick assertion type, then click target element (`Cmd+Shift+A`) |
+| WebCure: Assert: Page Title         | Assert current page title matches                              |
+| WebCure: Assert: Page URL           | Assert current page URL (exact or contains)                    |
+| WebCure: Assert: Element Count      | Click element, then assert how many matching elements exist    |
+| WebCure: Assert: Full Page Snapshot | Assert page body contains specific text                        |
+| WebCure: Run Script                 | Execute a JSON automation script                               |
 
 ---
 
@@ -456,13 +461,13 @@ curl http://localhost:5678/health
 
 ---
 
-## Step Recording
+## Browser Session Recording
 
 WebCure can record every user interaction in the browser and produce human-readable documentation and/or a Playwright Python test script. Choose from three output modes when you start a recording.
 
 ### Recording Modes
 
-Command Palette → **WebCure: Record Steps** presents a mode picker:
+Command Palette → **WebCure: Record Browser Session** presents a mode picker:
 
 | Mode                       | What is produced                                                                                                                                  |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -472,14 +477,14 @@ Command Palette → **WebCure: Record Steps** presents a mode picker:
 
 ### How It Works
 
-1. **Start recording:** Command Palette → **WebCure: Record Steps**
+1. **Start recording:** Command Palette → **WebCure: Record Browser Session**
 2. **Choose output mode** (Markdown / Python / Both)
 3. _(Markdown/Both)_ Optionally enter a folder name (blank = auto-timestamp)
 4. _(Python/Both)_ Optionally enter a script filename (default `test_recording.py`)
 5. _(Python/Both)_ Optionally enter a **default wait between steps** in seconds (e.g. `1`). If set, `time.sleep(N)` is added after each action in the generated script.
 6. Optionally enter an initial URL (defaults to `https://demo.testfire.net`)
 7. **Interact normally** — every click, form input, file upload, and Enter key press is captured
-8. **Stop recording:** Command Palette → **WebCure: Stop Recording Steps**, or simply close the browser window
+8. **Stop recording:** Command Palette → **WebCure: Stop Browser Session**, or simply close the browser window
 
 ### What Gets Captured
 
@@ -496,7 +501,7 @@ Command Palette → **WebCure: Record Steps** presents a mode picker:
 | Upload a file            | `Uploaded file to 'Resume'` (path captured via dialog) | Taken after file selected                 |
 | Navigate to URL          | `Performed 'navigate' on 'Navigated to https://...'`   | Taken after page load                     |
 | Close the browser        | `Performed 'close' on 'Browser window closed'`         | No screenshot (browser is gone)           |
-| Insert Sleep Step        | `Wait 2 seconds`                                       | No screenshot (no UI change)              |
+| Insert Wait Step         | `Wait 2 seconds`                                       | No screenshot (no UI change)              |
 
 ### Output Structure
 
@@ -538,9 +543,97 @@ self_healing_fill(page, [
 ], "admin")
 ```
 
+### Assertions
+
+During a recording session, you can insert **assertions** to verify the state of the page or specific elements. Assertions are recorded as steps and generate corresponding Python assertion calls in the output script.
+
+#### Quick Start
+
+1. **Start a recording** — Command Palette → **WebCure: Record Browser Session** (Python or Both mode)
+2. **Interact normally** — click, type, navigate
+3. **Insert an assertion** — press `Cmd+Shift+A` (macOS) / `Ctrl+Shift+A`, pick the assertion type, then click the target element
+4. **Stop recording** — the generated Python script includes assertion calls with pass/fail logging
+
+#### Element Assertions
+
+Press `Cmd+Shift+A` or Command Palette → **Assert: Element** to see a QuickPick menu:
+
+| Assertion       | What It Verifies                     | Example Use Case                                                 |
+| --------------- | ------------------------------------ | ---------------------------------------------------------------- |
+| **Visible**     | Element is visible on the page       | Verify a success message appeared after form submission          |
+| **Not Visible** | Element is NOT visible               | Verify an error banner disappeared after correction              |
+| **Text**        | Element contains specific text       | Verify a heading shows "Welcome, Admin" after login              |
+| **Value**       | Input/select has a specific value    | Verify a form field retained its value after page reload         |
+| **Checked**     | Checkbox/radio is checked            | Verify "Remember me" checkbox is checked by default              |
+| **Not Checked** | Checkbox/radio is NOT checked        | Verify a terms checkbox starts unchecked                         |
+| **Enabled**     | Element is enabled (clickable)       | Verify the submit button is active after filling required fields |
+| **Disabled**    | Element is disabled                  | Verify the submit button is greyed out before filling the form   |
+| **Attribute**   | Element attribute has expected value | Verify a link's `href` attribute points to the correct URL       |
+
+After picking the type, click the target element on the page. WebCure captures the element's locators and current state, then records the assertion step.
+
+#### Page-Level Assertions
+
+These don't require clicking an element:
+
+| Command                        | What It Verifies                 | Example Use Case                                         |
+| ------------------------------ | -------------------------------- | -------------------------------------------------------- |
+| **Assert: Page Title**         | `document.title` matches exactly | Verify the page title changes to "Dashboard" after login |
+| **Assert: Page URL**           | URL matches (exact or contains)  | Verify redirect to `/dashboard` after successful login   |
+| **Assert: Element Count**      | Number of matching elements      | Verify exactly 5 search results are displayed            |
+| **Assert: Full Page Snapshot** | Page body contains specific text | Verify "Sign Off" link appears somewhere on the page     |
+
+#### Pass/Fail Logging
+
+Generated Python scripts include a built-in logging system:
+
+- Each step is wrapped in `try/except` with `_record_step()` for pass/fail tracking
+- **Terminal output** shows ✅/❌ icons with step descriptions in real time
+- **Log file** is saved as `test_results_YYYYMMDD_HHMMSS.log`
+- **Summary** prints at the end: `TEST SUMMARY: 34/35 steps passed, 1 failed`
+- **Exit code** is `1` if any step failed, `0` if all passed
+
+Example output:
+
+```
+✅  Step 1: Navigate to https://example.com — PASS
+✅  Step 2: Assert page title is 'Example' — PASS
+✅  Step 3: Typed 'admin' into username — PASS
+❌  Step 4: Assert heading text contains 'Welcome' — FAIL  [Expected text 'Welcome' in 'Hello']
+
+============================================================
+TEST SUMMARY: 3/4 steps passed, 1 failed
+============================================================
+Failed steps:
+  Step 4: Assert heading text contains 'Welcome'
+    Error: Expected text 'Welcome' in 'Hello'
+Full log saved to: test_results_20260329_160005.log
+============================================================
+```
+
+#### Generated Python Code
+
+Assertions use the same self-healing locator system as action steps:
+
+```python
+# Step 5: Assert heading text contains 'Hello Admin User'
+assert_element_text(page, [
+    {"strategy": "css", "value": "h1", "confidence": 0.8},
+    {"strategy": "xpath", "value": "//h1", "confidence": 0.5},
+], "Hello Admin User")
+
+# Step 6: Assert page URL contains 'dashboard'
+assert_page_url(page, "dashboard", "contains")
+
+# Step 7: Assert exactly 2 checkboxes exist
+assert_element_count(page, [
+    {"strategy": "css", "value": "input[type='checkbox']", "confidence": 0.9},
+], 2)
+```
+
 ### Inserting Sleep Steps
 
-To insert an explicit pause at a specific point during recording: Command Palette → **WebCure: Insert Sleep Step**. You will be prompted for a duration in seconds. This adds a `time.sleep(N)` call at that exact position in the generated Python script.
+To insert an explicit pause at a specific point during recording: Command Palette → **WebCure: Insert Wait Step**. You will be prompted for a duration in seconds. This adds a `time.sleep(N)` call at that exact position in the generated Python script.
 
 For a uniform wait after **every** step, use the **default wait between steps** option at recording start instead.
 
@@ -600,9 +693,9 @@ If you close the browser window while recording is active, the recorder:
 
 ---
 
-## Script Recording & Python Playback
+## API Script Recording & Python Playback (Legacy)
 
-WebCure can record your browser actions and generate a Python script that replays them via the API server.
+WebCure can record your browser actions and generate a Python script that replays them via the API server. This is the original recording method — for most use cases, [Browser Session Recording](#browser-session-recording) is recommended instead.
 
 ### Step 1: Install the Python Client
 
@@ -623,9 +716,9 @@ This provides module-level convenience functions (`navigate`, `click`, `type_tex
 ### Step 2: Record Actions
 
 1. Open the Command Palette (`Cmd+Shift+P`)
-2. Run **WebCure: Start Recording**
+2. Run **WebCure: Record API Script (Legacy)**
 3. Perform browser actions — navigate, click, type, resize, etc. using any WebCure command (Command Palette or Copilot)
-4. Run **WebCure: Stop Recording** (works even if the browser was closed during the session)
+4. Run **WebCure: Stop API Script Recording** (works even if the browser was closed during the session)
 
 All actions are logged in the **WebCure Tools** Output channel. Start and stop recording events are also logged there with timestamps.
 
@@ -809,7 +902,8 @@ webcure/
 │   └── recorder/
 │       ├── action-log.ts       # Start/stop/record actions
 │       ├── script-generator.ts # Convert actions to Python
-│       └── step-recorder.ts   # Automatic step recorder (Markdown + screenshots)
+│       ├── step-recorder.ts   # Step recorder (Markdown + Python + assertions)
+│       └── element-rules-engine.ts  # W3C/ARIA element classification engine
 ├── python/
 │   ├── pyproject.toml        # Python package metadata
 │   ├── setup.py              # Package setup (pip install)
@@ -824,6 +918,8 @@ webcure/
 │   │   └── element-rules-engine.test.ts  # 113 unit tests for the rules engine
 │   └── integration/
 │       ├── live_engine_test.py  # 63 Python live browser tests against real sites
+│       ├── test_assertions.py   # 46 assertion helper integration tests
+│       ├── test_recorded_assertions.py  # 35-step end-to-end recorded-style test
 │       └── screenshots/         # Test screenshots captured during live tests
 ├── status/
 │   ├── project_status_01.md  # Initial release status report
@@ -831,7 +927,10 @@ webcure/
 │   ├── project_status_03.md  # Action persistence & interact tool fixes
 │   ├── project_status_04.md  # Step recorder feature
 │   ├── project_status_05.md  # Radix UI fixes & CLI step recorder
-│   └── project_status_06.md  # Deferred pointerdown & Select support
+│   ├── project_status_06.md  # Deferred pointerdown & Select support
+│   ├── project_status_07.md  # Element rules engine
+│   ├── project_status_08.md  # Python test script generation
+│   └── project_status_09.md  # Assertion recording & pass/fail logging
 ├── out/                      # Compiled JavaScript (tsc output)
 ├── package.json              # Extension manifest + tool/command declarations
 ├── tsconfig.json             # TypeScript configuration
@@ -865,6 +964,12 @@ npm run test:unit
 # Python live browser integration tests — 63 tests against real websites
 # (demo.testfire.net, the-internet.herokuapp.com, Radix UI Themes Playground, W3C WAI-ARIA)
 python3 tests/integration/live_engine_test.py
+
+# Assertion helper integration tests — 46 tests against live websites
+python3 tests/integration/test_assertions.py
+
+# End-to-end recorded-style assertion test — 35 steps with pass/fail logging
+python3 tests/integration/test_recorded_assertions.py
 
 # Automated bridge integration tests (requires VS Code + extension active)
 bash tests/bridge-integration-tests.sh

@@ -10,3 +10,4 @@ python/build/
 python/*.egg-info/
 __pycache__/
 tests/integration/screenshots/
+testing

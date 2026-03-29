@@ -193,13 +193,23 @@ export function getEngineScript(): string {
 
         // Fallback: check for common framework attributes that signal interactivity
         // even when the element lacks proper ARIA roles.
+        // IMPORTANT: Skip top-level app containers (#root, #app, #__next, etc.)
+        // because React 18+ and other frameworks attach event delegation to these
+        // elements, making el.onclick truthy even though the container itself is
+        // not an interactive target.
         el = target;
         while (el && el !== document.body && el !== document.documentElement) {
-            if (el.hasAttribute('data-slot') || el.hasAttribute('data-radix-collection-item') ||
-                el.hasAttribute('data-headlessui-state') || el.hasAttribute('data-state') ||
-                el.getAttribute('tabindex') === '0' || el.onclick ||
-                (el.style && el.style.cursor === 'pointer')) {
-                return el;
+            // Skip root app containers — framework event delegation, not real interactivity
+            const elId = (el.id || '').toLowerCase();
+            const isAppRoot = el.parentElement === document.body &&
+                (elId === 'root' || elId === 'app' || elId === '__next' || elId === '__nuxt');
+            if (!isAppRoot) {
+                if (el.hasAttribute('data-slot') || el.hasAttribute('data-radix-collection-item') ||
+                    el.hasAttribute('data-headlessui-state') || el.hasAttribute('data-state') ||
+                    el.getAttribute('tabindex') === '0' || el.onclick ||
+                    (el.style && el.style.cursor === 'pointer')) {
+                    return el;
+                }
             }
             el = el.parentElement;
         }
