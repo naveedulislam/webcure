@@ -322,7 +322,8 @@ export async function activate(context: vscode.ExtensionContext) {
 			[
 				{ label: '$(markdown) Markdown + Screenshots', description: 'Save steps as a Markdown file with screenshots', value: 'markdown' as RecordingMode },
 				{ label: '$(code) Python Test Script', description: 'Generate a Playwright Python test script', value: 'python' as RecordingMode },
-				{ label: '$(files) Both', description: 'Save Markdown with screenshots AND generate Python script', value: 'both' as RecordingMode },
+				{ label: '$(beaker) Python + Helium Test Script', description: 'Generate a Helium (Selenium) Python test script', value: 'helium' as RecordingMode },
+				{ label: '$(files) Both', description: 'Save Markdown with screenshots AND generate Playwright Python script', value: 'both' as RecordingMode },
 			],
 			{ placeHolder: 'Choose recording output format' },
 		);
@@ -330,7 +331,7 @@ export async function activate(context: vscode.ExtensionContext) {
 
 		const options: RecordingOptions = {};
 
-		if (modeChoice.value !== 'python') {
+		if (modeChoice.value === 'markdown' || modeChoice.value === 'both') {
 			const folderName = await vscode.window.showInputBox({
 				prompt: 'Folder name for the recording (leave blank for auto-generated name)',
 				placeHolder: 'e.g. MyTest_LoginFlow',

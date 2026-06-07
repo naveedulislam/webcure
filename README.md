@@ -463,7 +463,7 @@ curl http://localhost:5678/health
 
 ## Browser Session Recording
 
-WebCure can record every user interaction in the browser and produce human-readable documentation and/or a Playwright Python test script. Choose from three output modes when you start a recording.
+WebCure can record every user interaction in the browser and produce human-readable documentation and/or an automated Python test script. Choose from four output modes when you start a recording.
 
 ### Recording Modes
 
@@ -473,15 +473,16 @@ Command Palette → **WebCure: Record Browser Session** presents a mode picker:
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Markdown + Screenshots** | A timestamped folder containing `Recording.md` plus a screenshot for each step. Great for test documentation, bug reports, and onboarding guides. |
 | **Python Test Script**     | A standalone Playwright Python script with self-healing locators. No screenshots folder is created.                                               |
-| **Both**                   | Markdown with screenshots **and** a Python script, saved together in the same session folder.                                                     |
+| **Both**                   | Markdown with screenshots **and** a Playwright Python script, saved together in the same session folder.                                          |
+| **Python + Helium Test Script** | A standalone [Helium](https://github.com/mherrmann/helium) (Selenium) Python script that drives the browser the way a human does — matching elements by their **visible label/text** (`Button("Login")`, `TextField("Username")`), with self-healing locators as an automatic fallback. No screenshots folder is created. |
 
 ### How It Works
 
 1. **Start recording:** Command Palette → **WebCure: Record Browser Session**
-2. **Choose output mode** (Markdown / Python / Both)
+2. **Choose output mode** (Markdown / Python / Both / Python + Helium)
 3. _(Markdown/Both)_ Optionally enter a folder name (blank = auto-timestamp)
-4. _(Python/Both)_ Optionally enter a script filename (default `test_recording.py`)
-5. _(Python/Both)_ Optionally enter a **default wait between steps** in seconds (e.g. `1`). If set, `time.sleep(N)` is added after each action in the generated script.
+4. _(Python/Both/Helium)_ Optionally enter a script filename (default `test_recording.py`)
+5. _(Python/Both/Helium)_ Optionally enter a **default wait between steps** in seconds (e.g. `1`). If set, `time.sleep(N)` is added after each action in the generated script.
 6. Optionally enter an initial URL (defaults to `https://demo.testfire.net`)
 7. **Interact normally** — every click, form input, file upload, and Enter key press is captured
 8. **Stop recording:** Command Palette → **WebCure: Stop Browser Session**, or simply close the browser window
@@ -522,6 +523,12 @@ WebCure_Steps_2026-03-09_22-13-00/
 test_recording_2026-03-09_22-13-00.py
 ```
 
+**Python + Helium** mode likewise writes a single timestamped script to the workspace root (no screenshots folder):
+
+```
+test_recording_2026-03-09_22-13-00.py
+```
+
 The Markdown file contains structured entries like:
 
 ```markdown
@@ -542,6 +549,47 @@ self_healing_fill(page, [
     {"strategy": "css", "value": "input[name='uid']", "confidence": 0.6},
 ], "admin")
 ```
+
+### Python + Helium Test Scripts (Visible-UI First)
+
+Selecting **$(beaker) Python + Helium Test Script** from the recording mode picker generates a [Helium](https://github.com/mherrmann/helium) script instead of a Playwright one. [Helium](https://github.com/mherrmann/helium) is a high-level wrapper around Selenium that lets you drive a page the way a human would — by referring to elements via the **labels and text the user actually sees**.
+
+WebCure leans into that philosophy: wherever a reliable visible label was captured during recording, the generated script prefers Helium's GUI API (`Button`, `Link`, `TextField`, `ComboBox`, `CheckBox`, `RadioButton`, `Text`) over raw locators. The recorded self-healing locators are still emitted, but only as an **automatic fallback** if the visible element cannot be found:
+
+```python
+# Step 2: Typed 'alice' into 'Username'
+gui_write("alice", TextField("Username"), [
+    {"strategy": "css", "value": "#user", "confidence": 0.9},
+])
+
+# Step 4: Selected 'English' from 'Language'
+gui_select("Language", "English", [
+    {"strategy": "css", "value": "#lang", "confidence": 0.8},
+])
+
+# Step 6: Clicked on button 'Sign in'
+gui_click(Button("Sign in"), [
+    {"strategy": "css", "value": "#submit", "confidence": 0.95},
+])
+```
+
+Each `gui_*` helper first waits for the visible element (`Button(...)`, `TextField(...)`, …) and acts on it; if that element never appears, it transparently falls back to the same confidence-ordered self-healing locators used by the Playwright generator. Elements without a clean visible label (e.g. icon-only or very long text) fall back to a locator-only call automatically.
+
+**Prerequisites:**
+
+```bash
+pip install helium
+```
+
+`helium` pulls in Selenium and manages the matching ChromeDriver for you. You also need Google Chrome installed.
+
+**Run the generated script:**
+
+```bash
+python3 test_recording.py
+```
+
+The script launches Chrome (visible, non-headless), replays each step, prints ✅/❌ per-step results to the terminal, writes a `test_results_*.log` file, and exits with code `1` if any step failed — the same pass/fail logging and assertion support as the Playwright output.
 
 ### Assertions
 

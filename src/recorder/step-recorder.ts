@@ -13,12 +13,22 @@ declare global {
     }
 }
 
-export type RecordingMode = 'markdown' | 'python' | 'both';
+export type RecordingMode = 'markdown' | 'python' | 'both' | 'helium';
 
 export interface RecordingOptions {
     folderName?: string;        // custom folder name for markdown/both modes
-    scriptName?: string;        // custom .py filename for python/both modes
+    scriptName?: string;        // custom .py filename for python/both/helium modes
     defaultWaitSeconds?: number; // time.sleep(N) inserted after each action step in the Python script
+}
+
+/** Modes that produce a Markdown + screenshots log. */
+function isMarkdownMode(mode: RecordingMode): boolean {
+    return mode === 'markdown' || mode === 'both';
+}
+
+/** Modes that produce a Python script (Playwright or Helium). */
+function isScriptMode(mode: RecordingMode): boolean {
+    return mode === 'python' || mode === 'both' || mode === 'helium';
 }
 
 let isRecordingSteps = false;
@@ -108,15 +118,15 @@ async function handleBrowserStep(eventData: any) {
         eventData = assertData;
     }
 
-    if (currentRecordingMode !== 'python') {
+    if (isMarkdownMode(currentRecordingMode)) {
         if (!currentMarkdownPath) return;
     }
 
     // Store step data for Python generation
     recordedStepsData.push(eventData);
 
-    // Skip markdown writing in python-only mode
-    if (currentRecordingMode === 'python') return;
+    // Skip markdown writing in script-only modes (python / helium)
+    if (!isMarkdownMode(currentRecordingMode)) return;
 
     // Enqueue the step to prevent race conditions on stepCounter and file writes
     stepQueue = stepQueue.then(async () => {
@@ -230,7 +240,7 @@ export async function startStepRecorder(initialUrl?: string, mode: RecordingMode
 
         // For markdown / both: create the timestamped folder and init the .md file.
         // For python-only: no folder — the script goes directly to workspace root.
-        if (mode !== 'python') {
+        if (isMarkdownMode(mode)) {
             currentLogDir = initMarkdownLog(options.folderName);  // also sets currentMarkdownPath
         }
 
@@ -600,7 +610,7 @@ export async function stopStepRecorder() {
     }
 
     // ── Markdown output ──────────────────────────────────────────────────
-    if (stoppedMode !== 'python' && savedMarkdownPath && fs.existsSync(savedMarkdownPath)) {
+    if (isMarkdownMode(stoppedMode) && savedMarkdownPath && fs.existsSync(savedMarkdownPath)) {
         vscode.window.showInformationMessage(`Recording stopped. Opening log file: ${savedMarkdownPath}`);
         try {
             const uri = vscode.Uri.file(savedMarkdownPath);
@@ -611,10 +621,12 @@ export async function stopStepRecorder() {
         }
     }
 
-    // ── Python script output ─────────────────────────────────────────────
-    if (stoppedMode === 'python' || stoppedMode === 'both') {
+    // ── Python script output (Playwright or Helium) ──────────────────────
+    if (isScriptMode(stoppedMode)) {
         try {
-            const pyScript = generateStepsPythonScript(stepsSnapshot, currentDefaultWaitSeconds);
+            const pyScript = stoppedMode === 'helium'
+                ? generateStepsHeliumScript(stepsSnapshot, currentDefaultWaitSeconds)
+                : generateStepsPythonScript(stepsSnapshot, currentDefaultWaitSeconds);
 
             // 'both': place script alongside markdown inside the session folder.
             // 'python'-only: no session folder — place directly in workspace root
@@ -1481,6 +1493,637 @@ export function generateStepsPythonScript(steps: any[], defaultWaitSeconds = 0):
     lines.push(`${indent}browser.close()`);
     lines.push(`${indent}if _has_failure:`);
     lines.push(`${indent}    sys.exit(1)`);
+    lines.push('');
+    lines.push('');
+    lines.push('if __name__ == "__main__":');
+    lines.push('    test_recorded_flow()');
+    lines.push('');
+
+    return lines.join('\n');
+}
+
+// ─── Helium (Selenium) Test Script Generation ─────────────────────────────────
+//
+// Helium drives the browser the way a human does — by matching elements via
+// their *visible* label/text (Button("Login"), TextField("Username"), ...).
+// The generator therefore PREFERS Helium's GUI API whenever a usable visible
+// label was captured, and only falls back to the recorded self-healing
+// locators when no reliable visible label is available.
+
+/** Best human-visible label for an element (accessible name / text). */
+function heliumLabel(step: any): string {
+    return String(step.label || step.accessibleName || step.text || '')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+/**
+ * Map a recorded step to a Helium GUI element expression (e.g. `Button("Save")`)
+ * based on its semantic category, or `null` when no usable visible label exists.
+ */
+function heliumGuiElement(step: any): string | null {
+    const label = heliumLabel(step);
+    if (!label || label.length > 80) return null;  // overly long labels are unreliable matches
+    const role = String(step.role || '');
+    const cat = String(step.category || '');
+    const tag = String(step.tagName || '').toLowerCase();
+
+    if (role === 'link' || tag === 'a') return `Link(${pyStr(label)})`;
+    if (cat === 'actionable') return `Button(${pyStr(label)})`;
+    if (role === 'radio') return `RadioButton(${pyStr(label)})`;
+    if (cat === 'toggle') return `CheckBox(${pyStr(label)})`;
+    if (cat === 'select') return `ComboBox(${pyStr(label)})`;
+    if (cat === 'input' || tag === 'input' || tag === 'textarea') return `TextField(${pyStr(label)})`;
+    return null;
+}
+
+function stepToHeliumLines(step: any, stepNum: number, indent: string): string[] {
+    const { type, locators, value, key, url, text, tagName } = step;
+    const lines: string[] = [];
+
+    const comment = (step.description
+        || (type === 'navigate' ? `Navigate to ${url || text || ''}` : `Step ${stepNum}`))
+        .replace(/\n/g, ' ').replace(/\r/g, '').replace(/\s+/g, ' ').trim();
+    lines.push(`${indent}# Step ${stepNum}: ${comment}`);
+
+    if (type === 'navigate') {
+        const navUrl = url || (typeof text === 'string' ? text.replace(/^Navigated to /, '').trim() : '');
+        if (navUrl) {
+            lines.push(`${indent}go_to(${pyStr(navUrl)})`);
+        } else {
+            lines.push(`${indent}# (navigate — URL not captured)`);
+        }
+        lines.push('');
+        return lines;
+    }
+
+    if (type === 'close') {
+        lines.push('');
+        return lines;
+    }
+
+    // Optional sleep / pause step
+    if (type === 'sleep') {
+        const secs = step.seconds ?? 1;
+        lines.push(`${indent}time.sleep(${secs})  # Wait ${secs}s`);
+        lines.push('');
+        return lines;
+    }
+
+    // File-upload steps recorded via the Node.js filechooser interceptor
+    if (type === 'fileupload') {
+        const locRepr = locatorsToRepr(locators || [], step, indent);
+        if (!step.filePath) {
+            lines.push(`${indent}# TODO: Replace the placeholder below with the actual file path`);
+            lines.push(`${indent}upload_file(${locRepr}, "/path/to/your/file")`);
+        } else {
+            lines.push(`${indent}upload_file(${locRepr}, ${pyStr(step.filePath)})`);
+        }
+        lines.push('');
+        return lines;
+    }
+
+    // ── Page-level assertions ─────────────────────────────────────────────
+    if (type === 'assert_title') {
+        lines.push(`${indent}assert_page_title(${pyStr(step.assertionValue || '')})`);
+        lines.push('');
+        return lines;
+    }
+    if (type === 'assert_url') {
+        const matchType = step.assertionMatchType || 'exact';
+        lines.push(`${indent}assert_page_url(${pyStr(step.assertionValue || '')}, ${pyStr(matchType)})`);
+        lines.push('');
+        return lines;
+    }
+    if (type === 'assert_snapshot') {
+        lines.push(`${indent}assert_page_contains_text(${pyStr(step.assertionValue || '')})`);
+        lines.push('');
+        return lines;
+    }
+
+    // Element-targeted assertions (need locators)
+    if (type.startsWith('assert_')) {
+        const allLocs = (Array.isArray(locators) && locators.length > 0)
+            ? locators : buildFallbackLocators(step);
+        if (allLocs.length === 0) {
+            lines.push(`${indent}# Could not generate locator for assertion on <${tagName || 'element'}>`);
+            lines.push('');
+            return lines;
+        }
+        const locRepr = locatorsToRepr(locators || [], step, indent);
+
+        if (type === 'assert_visible') {
+            lines.push(`${indent}assert_element_visible(${locRepr})`);
+        } else if (type === 'assert_not_visible') {
+            lines.push(`${indent}assert_element_not_visible(${locRepr})`);
+        } else if (type === 'assert_text') {
+            lines.push(`${indent}assert_element_text(${locRepr}, ${pyStr(step.assertionValue || '')})`);
+        } else if (type === 'assert_value') {
+            lines.push(`${indent}assert_element_value(${locRepr}, ${pyStr(step.assertionValue || '')})`);
+        } else if (type === 'assert_checked') {
+            lines.push(`${indent}assert_element_checked(${locRepr}, True)`);
+        } else if (type === 'assert_not_checked') {
+            lines.push(`${indent}assert_element_checked(${locRepr}, False)`);
+        } else if (type === 'assert_enabled') {
+            lines.push(`${indent}assert_element_enabled(${locRepr}, True)`);
+        } else if (type === 'assert_disabled') {
+            lines.push(`${indent}assert_element_enabled(${locRepr}, False)`);
+        } else if (type === 'assert_count') {
+            lines.push(`${indent}assert_element_count(${locRepr}, ${step.assertionValue ?? 0})`);
+        } else if (type === 'assert_attribute') {
+            lines.push(`${indent}assert_element_attribute(${locRepr}, ${pyStr(step.assertionAttribute || '')}, ${pyStr(step.assertionValue || '')})`);
+        }
+        lines.push('');
+        return lines;
+    }
+
+    // Suppress leftover click/change events on file inputs (filechooser step already covers them)
+    const isFileInput = tagName?.toLowerCase() === 'input' &&
+        (step.inputType === 'file' || (step.cssSelector || '').includes('type="file"') ||
+         (step.xpath || '').includes('@type="file"'));
+    if (isFileInput) {
+        lines.push(`${indent}# (file-input click/change skipped — captured by upload_file step above)`);
+        lines.push('');
+        return lines;
+    }
+
+    const allLocs = (Array.isArray(locators) && locators.length > 0)
+        ? locators : buildFallbackLocators(step);
+
+    if (allLocs.length === 0) {
+        lines.push(`${indent}# Could not generate locator for ${type} on <${tagName || 'element'}>`);
+        lines.push('');
+        return lines;
+    }
+
+    const locRepr = locatorsToRepr(locators || [], step, indent);
+
+    if (type === 'click') {
+        const gui = heliumGuiElement(step);
+        const label = heliumLabel(step);
+        if (gui) {
+            // Prefer the visible GUI element; fall back to locators if not found.
+            lines.push(`${indent}gui_click(${gui}, ${locRepr})`);
+        } else if (label && label.length <= 80) {
+            // Click by visible text (menu items, custom widgets), with locator fallback.
+            lines.push(`${indent}gui_click_text(${pyStr(label)}, ${locRepr})`);
+        } else {
+            lines.push(`${indent}self_healing_click(${locRepr})`);
+        }
+    } else if (type === 'select') {
+        const optionText = step.label || value || '';           // visible option text
+        const fieldLabel = String(step.accessibleName || '').replace(/\s+/g, ' ').trim(); // <select> label
+        if (fieldLabel && fieldLabel.length <= 80) {
+            lines.push(`${indent}gui_select(${pyStr(fieldLabel)}, ${pyStr(optionText)}, ${locRepr})`);
+        } else {
+            lines.push(`${indent}self_healing_select(${locRepr}, ${pyStr(optionText)})`);
+        }
+    } else if (type === 'type') {
+        const label = heliumLabel(step);
+        if (label && label.length <= 80) {
+            // Type into the visible field by its label; fall back to locators.
+            lines.push(`${indent}gui_write(${pyStr(value ?? '')}, TextField(${pyStr(label)}), ${locRepr})`);
+        } else {
+            lines.push(`${indent}self_healing_fill(${locRepr}, ${pyStr(value ?? '')})`);
+        }
+    } else if (type === 'keydown' && key) {
+        // press() acts on the focused element (visible-UI idiom); locator fallback.
+        lines.push(`${indent}gui_press(${pyStr(key)}, ${locRepr})`);
+    } else {
+        lines.push(`${indent}# ${type} on <${tagName || 'element'}> — no automation generated`);
+    }
+
+    lines.push('');
+    return lines;
+}
+
+const HELIUM_HELPERS = `
+import re
+import sys
+import time
+import logging
+from datetime import datetime
+
+from helium import (
+    start_chrome, go_to, kill_browser, get_driver, wait_until,
+    click, write, press, select,
+    Button, Link, TextField, ComboBox, CheckBox, RadioButton, Text,
+)
+from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.support.ui import WebDriverWait, Select
+from selenium.webdriver.support import expected_conditions as EC
+
+# ---------------------------------------------------------------------------
+# Logging setup
+# ---------------------------------------------------------------------------
+_log_filename = f"test_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s  %(message)s",
+    datefmt="%H:%M:%S",
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+        logging.FileHandler(_log_filename, mode='w'),
+    ],
+)
+_logger = logging.getLogger("WebCure")
+_step_results: list = []  # [(step_num, description, "PASS"|"FAIL", error_msg)]
+
+
+def _record_step(step_num: int, description: str, passed: bool, error: str = ""):
+    status = "PASS" if passed else "FAIL"
+    _step_results.append((step_num, description, status, error))
+    icon = "\\u2705" if passed else "\\u274C"
+    msg = f"{icon}  Step {step_num}: {description} — {status}"
+    if error:
+        msg += f"  [{error}]"
+    _logger.info(msg)
+
+
+def _print_summary():
+    total = len(_step_results)
+    passed = sum(1 for r in _step_results if r[2] == "PASS")
+    failed = total - passed
+    _logger.info("")
+    _logger.info("=" * 60)
+    _logger.info(f"TEST SUMMARY: {passed}/{total} steps passed, {failed} failed")
+    _logger.info("=" * 60)
+    if failed:
+        _logger.info("Failed steps:")
+        for num, desc, status, err in _step_results:
+            if status == "FAIL":
+                _logger.info(f"  Step {num}: {desc}")
+                _logger.info(f"    Error: {err}")
+    _logger.info(f"Full log saved to: {_log_filename}")
+    _logger.info("=" * 60)
+
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+WAIT_TIMEOUT = 5  # seconds — max time to wait for any locator to become available
+
+
+_KEY_MAP = {
+    "Enter": Keys.ENTER, "Tab": Keys.TAB, "Escape": Keys.ESCAPE,
+    "Backspace": Keys.BACK_SPACE, "Delete": Keys.DELETE,
+    "ArrowUp": Keys.ARROW_UP, "ArrowDown": Keys.ARROW_DOWN,
+    "ArrowLeft": Keys.ARROW_LEFT, "ArrowRight": Keys.ARROW_RIGHT,
+    "Home": Keys.HOME, "End": Keys.END,
+    "PageUp": Keys.PAGE_UP, "PageDown": Keys.PAGE_DOWN,
+    "Space": Keys.SPACE, " ": Keys.SPACE,
+}
+
+
+def _key_for(key: str):
+    return _KEY_MAP.get(key, key)
+
+
+def _xpath_literal(s: str) -> str:
+    """Safely embed an arbitrary string into an XPath expression."""
+    if '"' not in s:
+        return f'"{s}"'
+    if "'" not in s:
+        return f"'{s}'"
+    parts = s.split('"')
+    sep = ", '" + '"' + "', "
+    return "concat(" + sep.join(f'"{p}"' for p in parts) + ")"
+
+
+# ---------------------------------------------------------------------------
+# Self-healing locator resolution (Selenium WebDriver under Helium)
+# ---------------------------------------------------------------------------
+def _by_for(strategy: str, value: str):
+    """Convert a (strategy, value) pair to a Selenium (By, selector) tuple."""
+    if strategy == "id":
+        return (By.ID, value)
+    if strategy == "name":
+        return (By.NAME, value)
+    if strategy == "css":
+        return (By.CSS_SELECTOR, value)
+    if strategy == "xpath":
+        return (By.XPATH, value)
+    if strategy == "linkText":
+        return (By.LINK_TEXT, value)
+    if strategy == "testId":
+        m = re.search(r'"([^"]+)"', value)
+        tid = m.group(1) if m else value
+        return (By.CSS_SELECTOR, f'[data-testid="{tid}"]')
+    if strategy == "ariaLabel":
+        return (By.CSS_SELECTOR, f'[aria-label="{value}"]')
+    if strategy == "text":
+        return (By.XPATH, f"//*[normalize-space(text())={_xpath_literal(value)}]")
+    if strategy == "aria":
+        m = re.match(r'^([\\w-]+)\\[name="([^"]+)"\\]$', value)
+        if m:
+            tag, name = m.group(1), m.group(2)
+            return (By.XPATH, f"//{tag}[@aria-label={_xpath_literal(name)} or normalize-space(.)={_xpath_literal(name)}]")
+        return (By.CSS_SELECTOR, f'[aria-label="{value}"]')
+    return (By.CSS_SELECTOR, value)
+
+
+def find_element(locators: list, timeout: int = WAIT_TIMEOUT, visible: bool = True):
+    """
+    Try each locator strategy in confidence order.
+    Returns the first element that reaches the requested state within *timeout* seconds.
+    Use visible=False for hidden elements (e.g. <input type="file">).
+    """
+    driver = get_driver()
+    ordered = sorted(locators, key=lambda l: l.get("confidence", 0), reverse=True)
+    last_err = None
+    for loc in ordered:
+        by, sel = _by_for(loc.get("strategy", "css"), loc.get("value", ""))
+        if not sel:
+            continue
+        try:
+            cond = (EC.visibility_of_element_located((by, sel)) if visible
+                    else EC.presence_of_element_located((by, sel)))
+            return WebDriverWait(driver, timeout).until(cond)
+        except Exception as e:
+            last_err = e
+    strategies = [f"{l.get('strategy')}={l.get('value')}" for l in ordered]
+    raise Exception(f"Element not found with any of: {strategies}\\nLast error: {last_err}")
+
+
+def self_healing_click(locators: list, timeout: int = WAIT_TIMEOUT):
+    """Find the element via self-healing locators then click it."""
+    find_element(locators, timeout).click()
+
+
+def self_healing_fill(locators: list, value: str, timeout: int = WAIT_TIMEOUT):
+    """Find the element via self-healing locators then type *value* into it."""
+    el = find_element(locators, timeout)
+    el.clear()
+    el.send_keys(value)
+
+
+def self_healing_select(locators: list, value: str, timeout: int = WAIT_TIMEOUT):
+    """Find the <select> element and choose the matching option.
+
+    Tries by visible label first (more stable), falls back to the value attribute.
+    """
+    el = find_element(locators, timeout)
+    dropdown = Select(el)
+    try:
+        dropdown.select_by_visible_text(value)
+    except Exception:
+        dropdown.select_by_value(value)
+
+
+def self_healing_press(locators: list, key: str, timeout: int = WAIT_TIMEOUT):
+    """Find the element via self-healing locators then press *key*."""
+    el = find_element(locators, timeout)
+    el.send_keys(_key_for(key))
+
+
+# ---------------------------------------------------------------------------
+# Visible-UI-first action helpers
+#
+# These prefer Helium's human-facing API — matching elements by the visible
+# label/text exactly as a user sees them (Button("Login"), TextField("User")).
+# If the visible element does not appear within WAIT_TIMEOUT they fall back to
+# the self-healing locators captured during recording, so the test stays robust.
+# ---------------------------------------------------------------------------
+def gui_click(gui, locators: list):
+    try:
+        wait_until(gui.exists, timeout_secs=WAIT_TIMEOUT)
+        click(gui)
+        return
+    except Exception:
+        pass
+    self_healing_click(locators)
+
+
+def gui_click_text(text: str, locators: list):
+    try:
+        wait_until(Text(text).exists, timeout_secs=WAIT_TIMEOUT)
+        click(text)
+        return
+    except Exception:
+        pass
+    self_healing_click(locators)
+
+
+def gui_write(value: str, into_gui, locators: list):
+    try:
+        wait_until(into_gui.exists, timeout_secs=WAIT_TIMEOUT)
+        write(value, into=into_gui)
+        return
+    except Exception:
+        pass
+    self_healing_fill(locators, value)
+
+
+def gui_select(combo_label: str, value: str, locators: list):
+    try:
+        combo = ComboBox(combo_label)
+        wait_until(combo.exists, timeout_secs=WAIT_TIMEOUT)
+        select(combo, value)
+        return
+    except Exception:
+        pass
+    self_healing_select(locators, value)
+
+
+def gui_press(key: str, locators: list = None):
+    try:
+        press(_key_for(key))
+        return
+    except Exception:
+        pass
+    if locators:
+        self_healing_press(locators, key)
+
+
+# ---------------------------------------------------------------------------
+# File upload helper
+# ---------------------------------------------------------------------------
+def upload_file(locators: list, file_path: str, timeout: int = WAIT_TIMEOUT):
+    """
+    Upload a file to an <input type="file"> element using self-healing locators.
+
+    For hidden file inputs (common in Dropzone / React Dropzone UIs) the path is
+    sent directly to the input element, which works even when it is not visible.
+    """
+    if not locators:
+        locators = [{"strategy": "css", "value": 'input[type="file"]', "confidence": 0.5}]
+    el = find_element(locators, timeout, visible=False)  # file inputs are often hidden
+    el.send_keys(file_path)
+
+
+# ---------------------------------------------------------------------------
+# Self-healing assertion helpers
+# ---------------------------------------------------------------------------
+def assert_element_visible(locators: list, timeout: int = WAIT_TIMEOUT):
+    """Assert that the element resolved by self-healing locators is visible."""
+    el = find_element(locators, timeout)
+    assert el.is_displayed(), "Expected element to be visible"
+
+
+def assert_element_not_visible(locators: list, timeout: int = 2):
+    """Assert that no element matching the locators is visible."""
+    driver = get_driver()
+    ordered = sorted(locators, key=lambda l: l.get("confidence", 0), reverse=True)
+    for loc in ordered:
+        by, sel = _by_for(loc.get("strategy", "css"), loc.get("value", ""))
+        if not sel:
+            continue
+        try:
+            WebDriverWait(driver, timeout).until(EC.invisibility_of_element_located((by, sel)))
+            return  # success — element is hidden or detached
+        except Exception:
+            continue
+    return  # no element matched at all → also counts as not visible
+
+
+def assert_element_text(locators: list, expected_text: str, timeout: int = WAIT_TIMEOUT):
+    """Assert that the element's text contains the expected text (whitespace-normalized)."""
+    el = find_element(locators, timeout)
+    actual = re.sub(r'\\s+', ' ', el.text).strip()
+    expected = re.sub(r'\\s+', ' ', expected_text).strip()
+    assert expected in actual, f"Expected text '{expected}' in '{actual[:200]}'"
+
+
+def assert_element_value(locators: list, expected_value: str, timeout: int = WAIT_TIMEOUT):
+    """Assert that the input element's value matches."""
+    el = find_element(locators, timeout)
+    actual = el.get_attribute("value")
+    assert actual == expected_value, f"Expected value '{expected_value}' but got '{actual}'"
+
+
+def assert_element_checked(locators: list, expected: bool = True, timeout: int = WAIT_TIMEOUT):
+    """Assert that a checkbox/radio is checked (or unchecked if expected=False)."""
+    el = find_element(locators, timeout)
+    actual = el.is_selected()
+    state = "checked" if expected else "unchecked"
+    assert actual == expected, f"Expected element to be {state} but it was {'checked' if actual else 'unchecked'}"
+
+
+def assert_element_enabled(locators: list, expected: bool = True, timeout: int = WAIT_TIMEOUT):
+    """Assert that the element is enabled (or disabled if expected=False)."""
+    el = find_element(locators, timeout)
+    actual = el.is_enabled()
+    state = "enabled" if expected else "disabled"
+    assert actual == expected, f"Expected element to be {state} but it was {'enabled' if actual else 'disabled'}"
+
+
+def assert_page_title(expected_title: str):
+    """Assert that the page title matches."""
+    actual = get_driver().title
+    assert actual == expected_title, f"Expected title '{expected_title}' but got '{actual}'"
+
+
+def assert_page_url(expected_url: str, match_type: str = "exact"):
+    """Assert that the page URL matches (exact or contains)."""
+    actual = get_driver().current_url
+    if match_type == "contains":
+        assert expected_url in actual, f"Expected URL to contain '{expected_url}' but got '{actual}'"
+    else:
+        assert actual == expected_url, f"Expected URL '{expected_url}' but got '{actual}'"
+
+
+def assert_element_count(locators: list, expected_count: int, timeout: int = WAIT_TIMEOUT):
+    """Assert that the number of elements matching the best locator equals expected_count."""
+    driver = get_driver()
+    ordered = sorted(locators, key=lambda l: l.get("confidence", 0), reverse=True)
+    for loc in ordered:
+        by, sel = _by_for(loc.get("strategy", "css"), loc.get("value", ""))
+        if not sel:
+            continue
+        try:
+            WebDriverWait(driver, timeout).until(EC.presence_of_element_located((by, sel)))
+            actual = len(driver.find_elements(by, sel))
+            assert actual == expected_count, f"Expected {expected_count} elements but found {actual}"
+            return
+        except AssertionError:
+            raise
+        except Exception:
+            continue
+    raise Exception("Could not count elements — none of the locators matched")
+
+
+def assert_element_attribute(locators: list, attr_name: str, expected_value: str, timeout: int = WAIT_TIMEOUT):
+    """Assert that the element's attribute has the expected value."""
+    el = find_element(locators, timeout)
+    actual = el.get_attribute(attr_name)
+    assert actual == expected_value, f"Expected {attr_name}='{expected_value}' but got '{actual}'"
+
+
+def assert_page_contains_text(expected_text: str, timeout: int = WAIT_TIMEOUT):
+    """Assert that the page body contains the expected text."""
+    driver = get_driver()
+    xpath = f"//*[contains(normalize-space(.), {_xpath_literal(expected_text)})]"
+    WebDriverWait(driver, timeout).until(EC.presence_of_element_located((By.XPATH, xpath)))
+`;
+
+export function generateStepsHeliumScript(steps: any[], defaultWaitSeconds = 0): string {
+    const lines: string[] = [];
+    const timestamp = new Date().toISOString();
+    const indent = '        ';
+
+    lines.push('#!/usr/bin/env python3');
+    lines.push('# Auto-generated by WebCure Step Recorder (Python + Helium / Selenium)');
+    lines.push(`# Recorded at: ${timestamp}`);
+    lines.push('#');
+    lines.push('# Prerequisites:');
+    lines.push('#   pip install helium');
+    lines.push('#   (helium installs selenium; the matching browser driver is downloaded automatically)');
+    lines.push('#');
+    lines.push('# Run:  python3 test_recording.py');
+    lines.push('');
+    lines.push(HELIUM_HELPERS);
+    lines.push('');
+    lines.push('# ---------------------------------------------------------------------------');
+    lines.push('# Recorded test flow');
+    lines.push('# ---------------------------------------------------------------------------');
+    lines.push('def test_recorded_flow():');
+    lines.push('    start_chrome(headless=False)');
+    lines.push('    _has_failure = False');
+    lines.push('    try:');
+
+    let stepNum = 0;
+    for (const step of steps) {
+        if (step.type === 'close' && step.tagName === 'Browser') continue;
+        stepNum++;
+        const stepLines = stepToHeliumLines(step, stepNum, indent);
+        // Inject default wait between action steps (not after navigate / sleep / close / assertions)
+        const isActionStep = defaultWaitSeconds > 0
+            && step.type !== 'navigate'
+            && step.type !== 'sleep'
+            && step.type !== 'close'
+            && !String(step.type).startsWith('assert_');
+        if (isActionStep && stepLines.length > 0 && stepLines[stepLines.length - 1] === '') {
+            stepLines.splice(stepLines.length - 1, 0, `${indent}time.sleep(${defaultWaitSeconds})  # default wait between steps`);
+        }
+
+        // Extract the comment line (first line starting with #) as description
+        const commentLine = stepLines.find(l => l.trim().startsWith('# Step'));
+        const desc = commentLine
+            ? commentLine.trim().replace(/^# /, '').replace(/^Step \d+:\s*/, '')
+            : `Step ${stepNum}`;
+        const pyDesc = desc.replace(/'/g, "\\'");
+
+        // Wrap step in try/except for pass/fail tracking
+        lines.push(`${indent}try:`);
+        for (const l of stepLines) {
+            if (l === '') {
+                // skip blank lines inside the try
+            } else {
+                lines.push(`    ${l}`);
+            }
+        }
+        lines.push(`${indent}    _record_step(${stepNum}, '${pyDesc}', True)`);
+        lines.push(`${indent}except Exception as _e:`);
+        lines.push(`${indent}    _record_step(${stepNum}, '${pyDesc}', False, str(_e)[:200])`);
+        lines.push(`${indent}    _has_failure = True`);
+        lines.push('');
+    }
+
+    lines.push('    finally:');
+    lines.push('        _print_summary()');
+    lines.push('        kill_browser()');
+    lines.push('    if _has_failure:');
+    lines.push('        sys.exit(1)');
     lines.push('');
     lines.push('');
     lines.push('if __name__ == "__main__":');
